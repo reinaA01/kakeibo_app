@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 
 export async function GET(request: Request) {
   try {
-    // 1. 本日の「日（1〜31）」を取得
     const today = new Date();
-    const currentDay = today.getDate(); // 例: 22日なら 22
+    const currentDay = today.getDate(); // 例: 23日
+    // 「YYYY-MM-DD」形式の本日の日付文字列を作る（例: "2026-10-23"）
+    const todayStr = today.toISOString().split("T")[0];
 
     if (!db) {
       return NextResponse.json(
@@ -15,28 +16,30 @@ export async function GET(request: Request) {
       );
     }
 
-    // 2. Firestoreから支出データを取得
     const querySnapshot = await getDocs(collection(db, "expenses"));
-    const notificationsToSend: { title: string }[] = [];
+    const notificationsToSend: { id: string; title: string }[] = [];
 
     querySnapshot.forEach((docItem) => {
       const data = docItem.data();
-      // 変動費かつ、今日がconfirmDay（金額確定日）に一致するものを抽出
+
+      // 条件: 変動費、今日が確定日、かつ「今日まだ通知していない」
       if (
         data.expenseType === "variable" &&
-        Number(data.confirmDay) === currentDay
+        Number(data.confirmDay) === currentDay &&
+        data.lastNotifiedDate !== todayStr
       ) {
-        notificationsToSend.push({ title: data.title });
+        notificationsToSend.push({ id: docItem.id, title: data.title });
       }
     });
 
     if (notificationsToSend.length === 0) {
-      return NextResponse.json({ message: "本日の通知対象項目はありません。" });
+      return NextResponse.json({
+        message: "本日の新規通知対象項目はありません。",
+      });
     }
 
-    // 3. LINE Messaging API経由で通知を送信
     const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const userId = process.env.LINE_USER_ID; // 送信先のLINEユーザーID
+    const userId = process.env.LINE_USER_ID;
 
     if (!channelAccessToken || !userId) {
       return NextResponse.json(
@@ -58,7 +61,7 @@ export async function GET(request: Request) {
         ],
       };
 
-      await fetch("https://api.line.me/v2/bot/message/push", {
+      const res = await fetch("https://api.line.me/v2/bot/message/push", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -66,6 +69,14 @@ export async function GET(request: Request) {
         },
         body: JSON.stringify(messagePayload),
       });
+
+      // LINE送信が成功したら、Firestore側に「今日通知済み」のマーク（lastNotifiedDate）を書き込む
+      if (res.ok) {
+        const docRef = doc(db, "expenses", item.id);
+        await updateDoc(docRef, {
+          lastNotifiedDate: todayStr,
+        });
+      }
     }
 
     return NextResponse.json({
