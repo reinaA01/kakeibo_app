@@ -10,17 +10,22 @@ export default function LiffInputPage() {
   const [status, setStatus] = useState("");
 
   useEffect(() => {
-    // 画面がブラウザに表示されてから安全にLIFFを読み込む
+    // 1. URLのパラメータから 'title' を取得してセットする
+    const params = new URLSearchParams(window.location.search);
+    const titleParam = params.get("title");
+    if (titleParam) {
+      setTitle(titleParam);
+    }
+
+    // 2. LIFFの初期化
     import("@line/liff")
       .then((liffModule) => {
         const liff = liffModule.default;
-        liff.init({ liffId: "2012143898-DaqYIPd9" }).catch((err) => {
+        liff.init({ liffId: "あなたのLIFF_ID" }).catch((err) => {
           console.warn("LIFF初期化エラー:", err);
         });
       })
-      .catch(() => {
-        console.warn("LIFFパッケージが見つかりません");
-      });
+      .catch(() => {});
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -29,7 +34,6 @@ export default function LiffInputPage() {
 
     try {
       setStatus("送信中...");
-      // Firestoreへ直接、またはAPI経由で保存
       if (db) {
         await addDoc(collection(db, "expenses"), {
           title,
@@ -41,13 +45,14 @@ export default function LiffInputPage() {
         });
       }
 
-      setStatus("送信完了しました！");
+      setStatus("完了！");
 
-      // 送信完了後にLINE画面を閉じる
       import("@line/liff").then((liffModule) => {
         const liff = liffModule.default;
         if (liff.isInClient()) {
-          liff.closeWindow();
+          setTimeout(() => {
+            liff.closeWindow();
+          }, 1000); // 「完了！」を表示した1秒後に自動でウィンドウを閉じる
         }
       });
     } catch (e) {
@@ -73,15 +78,14 @@ export default function LiffInputPage() {
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full rounded-xl p-3 text-xs bg-white border border-[#EAE3DD] outline-none"
+            className="w-full rounded-xl p-3 text-xs bg-white border border-[#EAE3DD] outline-none font-bold"
             required
+            readOnly // 項目名を変えられたくない場合はreadOnlyを付与
           />
         </div>
 
         <div>
-          <label className="block text-xs font-semibold mb-1">
-            確定金額 (円)
-          </label>
+          <label className="block text-xs font-semibold mb-1">金額 (円)</label>
           <input
             type="number"
             value={amount}
@@ -89,6 +93,7 @@ export default function LiffInputPage() {
             className="w-full rounded-xl p-3 text-xs bg-white border border-[#EAE3DD] outline-none"
             placeholder="例: 8500"
             required
+            autoFocus
           />
         </div>
 
@@ -97,11 +102,16 @@ export default function LiffInputPage() {
           className="w-full py-3 rounded-xl font-bold text-white shadow-md cursor-pointer"
           style={{ backgroundColor: "#F28FA4" }}
         >
-          金額を送信する
+          送信する
         </button>
 
         {status && (
-          <p className="text-center text-xs mt-2 font-bold">{status}</p>
+          <p
+            className="text-center text-xs mt-2 font-bold"
+            style={{ color: status === "完了！" ? "#6F9569" : "#79665A" }}
+          >
+            {status}
+          </p>
         )}
       </form>
     </div>
