@@ -4,24 +4,27 @@ import { collection, getDocs } from "firebase/firestore";
 
 export async function GET(request: Request) {
   try {
-    // 1. 本日の「日（1〜31）」を取得
     const today = new Date();
-    const currentDay = today.getDate(); // 例: 27日なら 27
+    const currentDay = today.getDate();
+    console.log("本日の日付 (currentDay):", currentDay);
 
     if (!db) {
+      console.error("Database is null or undefined");
       return NextResponse.json(
         { error: "Database not initialized" },
         { status: 500 },
       );
     }
 
-    // 2. Firestoreから支出（変動費）データを取得
     const querySnapshot = await getDocs(collection(db, "expenses"));
+    console.log("取得したドキュメント数:", querySnapshot.size);
+
     const notificationsToSend: { title: string }[] = [];
 
     querySnapshot.forEach((docItem) => {
       const data = docItem.data();
-      // 変動費かつ、今日がdueDay（確定日）に一致するものを抽出
+      console.log("ドキュメントデータ:", data);
+
       if (
         data.expenseType === "variable" &&
         Number(data.dueDay) === currentDay
@@ -30,13 +33,15 @@ export async function GET(request: Request) {
       }
     });
 
+    console.log("条件に一致した通知対象:", notificationsToSend);
+
     if (notificationsToSend.length === 0) {
       return NextResponse.json({ message: "本日の通知対象項目はありません。" });
     }
 
-    // 3. LINE Messaging API経由で通知を送信
+    // 以降のLINE送信処理...
     const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const userId = process.env.LINE_USER_ID; // 送信先のLINEユーザーID（またはグループID）
+    const userId = process.env.LINE_USER_ID;
 
     if (!channelAccessToken || !userId) {
       return NextResponse.json(
@@ -73,7 +78,7 @@ export async function GET(request: Request) {
       sentCount: notificationsToSend.length,
     });
   } catch (error: any) {
-    console.error("通知エラー:", error);
+    console.error("通知エラー詳細:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
