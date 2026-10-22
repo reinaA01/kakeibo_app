@@ -14,7 +14,7 @@ export default function LiffInputPage() {
     import("@line/liff")
       .then((liffModule) => {
         const liff = liffModule.default;
-        liff.init({ liffId: "あなたのLIFF_ID" }).catch((err) => {
+        liff.init({ liffId: "2012143898-DaqYIPd9" }).catch((err) => {
           console.warn("LIFF初期化エラー:", err);
         });
       })
