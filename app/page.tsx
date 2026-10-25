@@ -9,6 +9,7 @@ import {
   getDoc,
   query,
   orderBy,
+  addDoc,
 } from "firebase/firestore";
 import { getActualWithdrawalDate, formatDateToString } from "@/lib/dateUtils";
 import {
@@ -35,6 +36,8 @@ interface IncomeEntry {
   id: string;
   category: "給与" | "副業" | "給付金・手当" | "臨時収入" | "その他";
   amount: number;
+  day: number; // 日付（1〜31）
+  ownership: "husband" | "wife";
 }
 
 const INCOME_CATEGORIES: IncomeEntry["category"][] = [
@@ -46,7 +49,6 @@ const INCOME_CATEGORIES: IncomeEntry["category"][] = [
 ];
 
 export default function Home() {
-  // 表示中の年月状態（初期値: 2026年10月）
   const [currentYear, setCurrentYear] = useState(2026);
   const [currentMonth, setCurrentMonth] = useState(10);
 
@@ -60,25 +62,27 @@ export default function Home() {
     "common",
   );
 
-  // 表示名
   const [husbandName, setHusbandName] = useState("夫");
   const [wifeName, setWifeName] = useState("妻");
 
-  // 収入データ
-  const [husbandIncomes, setHusbandIncomes] = useState<IncomeEntry[]>([]);
-  const [wifeIncomes, setWifeIncomes] = useState<IncomeEntry[]>([]);
+  // 収入データ（統合管理）
+  const [incomes, setIncomes] = useState<IncomeEntry[]>([]);
 
-  // 収入入力モーダルの状態
   const [incomeModalTarget, setIncomeModalTarget] = useState<
     "husband" | "wife" | null
   >(null);
   const [tempIncomes, setTempIncomes] = useState<IncomeEntry[]>([]);
 
-  // 日付詳細モーダル用
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
   const [selectedDayExpenses, setSelectedDayExpenses] = useState<ExpenseItem[]>(
     [],
   );
+  const [selectedDayIncomes, setSelectedDayIncomes] = useState<IncomeEntry[]>(
+    [],
+  );
+
+  const husbandIncomes = incomes.filter((i) => i.ownership === "husband");
+  const wifeIncomes = incomes.filter((i) => i.ownership === "wife");
 
   const husbandIncomeTotal = husbandIncomes.reduce(
     (sum, item) => sum + item.amount,
@@ -91,36 +95,6 @@ export default function Home() {
   const totalIncome = husbandIncomeTotal + wifeIncomeTotal;
 
   useEffect(() => {
-    const localConfig = localStorage.getItem("app_config");
-    if (localConfig) {
-      try {
-        const parsed = JSON.parse(localConfig);
-        if (parsed.husbandName) setHusbandName(parsed.husbandName);
-        if (parsed.wifeName) setWifeName(parsed.wifeName);
-      } catch (e) {}
-    }
-
-    const localExpenses = localStorage.getItem("app_expenses");
-    if (localExpenses) {
-      try {
-        setExpenses(JSON.parse(localExpenses));
-      } catch (e) {}
-    }
-
-    const localHusbandIncomes = localStorage.getItem("app_husband_incomes");
-    if (localHusbandIncomes) {
-      try {
-        setHusbandIncomes(JSON.parse(localHusbandIncomes));
-      } catch (e) {}
-    }
-
-    const localWifeIncomes = localStorage.getItem("app_wife_incomes");
-    if (localWifeIncomes) {
-      try {
-        setWifeIncomes(JSON.parse(localWifeIncomes));
-      } catch (e) {}
-    }
-
     const fetchData = async () => {
       try {
         if (db) {
@@ -131,26 +105,34 @@ export default function Home() {
             if (data.wifeName) setWifeName(data.wifeName);
           }
 
-          const q = query(collection(db, "expenses"), orderBy("dueDay", "asc"));
-          const querySnapshot = await getDocs(q);
-          const items: ExpenseItem[] = [];
-          querySnapshot.forEach((docItem) => {
-            items.push({ id: docItem.id, ...docItem.data() } as ExpenseItem);
+          // 支出取得
+          const expQuery = query(
+            collection(db, "expenses"),
+            orderBy("dueDay", "asc"),
+          );
+          const expSnapshot = await getDocs(expQuery);
+          const expItems: ExpenseItem[] = [];
+          expSnapshot.forEach((docItem) => {
+            expItems.push({ id: docItem.id, ...docItem.data() } as ExpenseItem);
           });
-          if (items.length > 0) {
-            setExpenses(items);
-            localStorage.setItem("app_expenses", JSON.stringify(items));
-          }
+          setExpenses(expItems);
+
+          // 収入取得
+          const incSnapshot = await getDocs(collection(db, "incomes"));
+          const incItems: IncomeEntry[] = [];
+          incSnapshot.forEach((docItem) => {
+            incItems.push({ id: docItem.id, ...docItem.data() } as IncomeEntry);
+          });
+          setIncomes(incItems);
         }
       } catch (e) {
-        console.warn("オフラインモードで動作中:", e);
+        console.warn("データ取得エラー:", e);
       }
     };
 
     fetchData();
   }, []);
 
-  // 月を前後に動かすハンドラー
   const handlePrevMonth = () => {
     if (currentMonth === 1) {
       setCurrentYear(currentYear - 1);
@@ -173,8 +155,7 @@ export default function Home() {
     e.preventDefault();
     if (!title) return;
 
-    const newItem: ExpenseItem = {
-      id: Date.now().toString(),
+    const newItem = {
       title,
       expenseType,
       amount: Number(amount) || 0,
@@ -182,16 +163,20 @@ export default function Home() {
       ownership,
     };
 
-    const updated = [...expenses, newItem];
-    setExpenses(updated);
-    localStorage.setItem("app_expenses", JSON.stringify(updated));
+    try {
+      if (db) {
+        const docRef = await addDoc(collection(db, "expenses"), newItem);
+        setExpenses([...expenses, { id: docRef.id, ...newItem }]);
+      }
+    } catch (e) {
+      console.error(e);
+    }
 
     setTitle("");
     setAmount("");
     setIsModalOpen(false);
   };
 
-  // 個人（夫・妻）限定の引き落とし合計額
   const husbandTotal = expenses
     .filter((e) => e.ownership === "husband")
     .reduce((sum, item) => sum + item.amount, 0);
@@ -200,13 +185,18 @@ export default function Home() {
     .filter((e) => e.ownership === "wife")
     .reduce((sum, item) => sum + item.amount, 0);
 
-  // 収入モーダルを開く
   const handleOpenIncomeModal = (target: "husband" | "wife") => {
     setIncomeModalTarget(target);
-    const initialList = target === "husband" ? husbandIncomes : wifeIncomes;
+    const initialList = incomes.filter((i) => i.ownership === target);
     if (initialList.length === 0) {
       setTempIncomes([
-        { id: Date.now().toString(), category: "給与", amount: 0 },
+        {
+          id: Date.now().toString(),
+          category: "給与",
+          amount: 0,
+          day: 25,
+          ownership: target,
+        },
       ]);
     } else {
       setTempIncomes(JSON.parse(JSON.stringify(initialList)));
@@ -214,9 +204,16 @@ export default function Home() {
   };
 
   const handleAddIncomeRow = () => {
+    if (!incomeModalTarget) return;
     setTempIncomes([
       ...tempIncomes,
-      { id: Date.now().toString(), category: "給与", amount: 0 },
+      {
+        id: Date.now().toString(),
+        category: "給与",
+        amount: 0,
+        day: 25,
+        ownership: incomeModalTarget,
+      },
     ]);
   };
 
@@ -224,17 +221,16 @@ export default function Home() {
     setTempIncomes(tempIncomes.filter((item) => item.id !== id));
   };
 
-  const handleIncomeChange = (
-    id: string,
-    field: "category" | "amount",
-    value: any,
-  ) => {
+  const handleIncomeChange = (id: string, field: string, value: any) => {
     setTempIncomes(
       tempIncomes.map((item) => {
         if (item.id === id) {
           return {
             ...item,
-            [field]: field === "amount" ? Number(value) || 0 : value,
+            [field]:
+              field === "amount" || field === "day"
+                ? Number(value) || 0
+                : value,
           };
         }
         return item;
@@ -242,24 +238,35 @@ export default function Home() {
     );
   };
 
-  const handleSaveIncome = (e: React.FormEvent) => {
+  const handleSaveIncome = async (e: React.FormEvent) => {
     e.preventDefault();
-    const validIncomes = tempIncomes.filter(
-      (item) => item.amount > 0 || tempIncomes.length === 1,
-    );
+    if (!incomeModalTarget) return;
 
-    if (incomeModalTarget === "husband") {
-      setHusbandIncomes(validIncomes);
-      localStorage.setItem("app_husband_incomes", JSON.stringify(validIncomes));
-    } else if (incomeModalTarget === "wife") {
-      setWifeIncomes(validIncomes);
-      localStorage.setItem("app_wife_incomes", JSON.stringify(validIncomes));
+    try {
+      if (db) {
+        for (const item of tempIncomes) {
+          if (!item.id.length || item.id.length > 15) {
+            const docRef = await addDoc(collection(db, "incomes"), {
+              category: item.category,
+              amount: item.amount,
+              day: item.day,
+              ownership: incomeModalTarget,
+            });
+            item.id = docRef.id;
+          }
+        }
+        const otherIncomes = incomes.filter(
+          (i) => i.ownership !== incomeModalTarget,
+        );
+        setIncomes([...otherIncomes, ...tempIncomes]);
+      }
+    } catch (e) {
+      console.error(e);
     }
 
     setIncomeModalTarget(null);
   };
 
-  // 暦通りのカレンダー計算と営業日調整ロジック
   const getDaysInMonth = (year: number, month: number) =>
     new Date(year, month, 0).getDate();
   const getFirstDayOfMonth = (year: number, month: number) =>
@@ -268,23 +275,18 @@ export default function Home() {
   const totalDays = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
 
-  // 日付ごとの支出マップを作成（固定費は土日祝なら翌営業日にズラす、変動費は金額入力がある場合のみ表示）
+  // 日付ごとの支出マップ
   const expensesByDate: { [key: string]: ExpenseItem[] } = {};
-
   expenses.forEach((item) => {
-    // 変動費で金額が未入力の場合は表示しない
     if (item.expenseType === "variable" && (!item.amount || item.amount <= 0)) {
       return;
     }
-
     let dateStr = "";
     if (item.expenseType === "variable") {
-      // 変動費はその月の指定日そのまま
       const formattedDay = String(item.dueDay).padStart(2, "0");
       const formattedMonth = String(currentMonth).padStart(2, "0");
       dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
     } else {
-      // 固定費は土日祝の場合翌営業日に調整
       const actualDate = getActualWithdrawalDate(
         currentYear,
         currentMonth,
@@ -299,9 +301,23 @@ export default function Home() {
     expensesByDate[dateStr].push(item);
   });
 
-  const handleOpenDayDetail = (dateKey: string, dayExp: ExpenseItem[]) => {
+  // 日付ごとの収入マップ
+  const incomesByDate: { [key: string]: IncomeEntry[] } = {};
+  incomes.forEach((item) => {
+    const formattedDay = String(item.day || 1).padStart(2, "0");
+    const formattedMonth = String(currentMonth).padStart(2, "0");
+    const dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
+
+    if (!incomesByDate[dateStr]) {
+      incomesByDate[dateStr] = [];
+    }
+    incomesByDate[dateStr].push(item);
+  });
+
+  const handleOpenDayDetail = (dateKey: string) => {
     setSelectedDateStr(dateKey);
-    setSelectedDayExpenses(dayExp);
+    setSelectedDayExpenses(expensesByDate[dateKey] || []);
+    setSelectedDayIncomes(incomesByDate[dateKey] || []);
   };
 
   return (
@@ -311,7 +327,6 @@ export default function Home() {
     >
       <div className="w-full max-w-lg mx-auto min-h-screen relative flex flex-col justify-between">
         <div>
-          {/* ヘッダー */}
           <header
             className="flex justify-between items-center px-4 h-14 bg-white/90 backdrop-blur sticky top-0 z-10 w-full"
             style={{ borderBottom: "1px solid #EAE3DD" }}
@@ -333,7 +348,6 @@ export default function Home() {
           </header>
 
           <main className="p-3 space-y-3 w-full">
-            {/* 年月ナビゲーション（＜ ＞で月変更） */}
             <div
               className="flex justify-center items-center gap-4 text-sm font-bold"
               style={{ color: "#79665A" }}
@@ -357,65 +371,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* 夫婦別支出サマリー（個人限定） */}
-            <div className="grid grid-cols-2 gap-2.5 w-full">
-              <div
-                className="p-3 rounded-xl shadow-sm text-center w-full"
-                style={{
-                  backgroundColor: "#EAF3FA",
-                  border: "1px solid #EAE3DD",
-                }}
-              >
-                <div
-                  className="flex items-center justify-center gap-1 font-bold mb-0.5 text-xs"
-                  style={{ color: "#78B4E2" }}
-                >
-                  <User className="w-3.5 h-3.5" />
-                  <span>{husbandName}</span>
-                </div>
-                <div
-                  className="text-base font-extrabold"
-                  style={{ color: "#79665A" }}
-                >
-                  ¥ {husbandTotal.toLocaleString()}
-                </div>
-                <div
-                  className="text-[10px] mt-0.5"
-                  style={{ color: "#A99A8E" }}
-                >
-                  今月の引き落とし額
-                </div>
-              </div>
-
-              <div
-                className="p-3 rounded-xl shadow-sm text-center w-full"
-                style={{
-                  backgroundColor: "#FCE9ED",
-                  border: "1px solid #EAE3DD",
-                }}
-              >
-                <div
-                  className="flex items-center justify-center gap-1 font-bold mb-0.5 text-xs"
-                  style={{ color: "#F28FA4" }}
-                >
-                  <User className="w-3.5 h-3.5" />
-                  <span>{wifeName}</span>
-                </div>
-                <div
-                  className="text-base font-extrabold"
-                  style={{ color: "#79665A" }}
-                >
-                  ¥ {wifeTotal.toLocaleString()}
-                </div>
-                <div
-                  className="text-[10px] mt-0.5"
-                  style={{ color: "#A99A8E" }}
-                >
-                  今月の引き落とし額
-                </div>
-              </div>
-            </div>
-
             {/* カレンダー */}
             <div
               className="p-3 rounded-2xl shadow-sm bg-white w-full"
@@ -430,7 +385,7 @@ export default function Home() {
                     className="w-3.5 h-3.5"
                     style={{ color: "#F28FA4" }}
                   />
-                  今月の支出
+                  カレンダー
                 </h2>
               </div>
 
@@ -447,9 +402,7 @@ export default function Home() {
                 <span style={{ color: "#78B4E2" }}>土</span>
               </div>
 
-              {/* 暦通りのカレンダー生成 */}
               <div className="grid grid-cols-7 gap-1.5 w-full">
-                {/* 月初めの余白セル */}
                 {Array.from({ length: firstDay }).map((_, index) => (
                   <div
                     key={`empty-${index}`}
@@ -457,23 +410,20 @@ export default function Home() {
                   ></div>
                 ))}
 
-                {/* 各日付セル */}
                 {Array.from({ length: totalDays }).map((_, index) => {
                   const day = index + 1;
                   const formattedDay = String(day).padStart(2, "0");
                   const formattedMonth = String(currentMonth).padStart(2, "0");
                   const dateKey = `${currentYear}-${formattedMonth}-${formattedDay}`;
-                  const dayExpenses = expensesByDate[dateKey] || [];
-                  const dayOfWeek = (firstDay + index) % 7;
 
-                  const visibleExpenses = dayExpenses.slice(0, 2);
-                  const overflowCount =
-                    dayExpenses.length - visibleExpenses.length;
+                  const dayExpenses = expensesByDate[dateKey] || [];
+                  const dayIncomes = incomesByDate[dateKey] || [];
+                  const dayOfWeek = (firstDay + index) % 7;
 
                   return (
                     <div
                       key={day}
-                      onClick={() => handleOpenDayDetail(dateKey, dayExpenses)}
+                      onClick={() => handleOpenDayDetail(dateKey)}
                       className="h-[72px] p-1 rounded-xl flex flex-col justify-between bg-white w-full transition shadow-2xs cursor-pointer hover:bg-gray-50 overflow-hidden"
                       style={{ border: "1px solid #EAE3DD" }}
                     >
@@ -491,39 +441,45 @@ export default function Home() {
                         >
                           {day}
                         </span>
-                        {overflowCount > 0 && (
-                          <span className="text-[9px] px-1 py-0.2 rounded-full font-bold bg-gray-100 text-[#A99A8E]">
-                            +{overflowCount}
-                          </span>
-                        )}
                       </div>
 
                       <div className="space-y-0.5 overflow-hidden w-full my-auto">
-                        {visibleExpenses.map((item) => {
-                          let bgColor = "#F5F2EF";
-                          let textColor = "#79665A";
-                          if (item.ownership === "husband") {
-                            bgColor = "#EAF3FA";
-                            textColor = "#78B4E2";
-                          } else if (item.ownership === "wife") {
-                            bgColor = "#FCE9ED";
-                            textColor = "#F28FA4";
-                          }
-
-                          return (
-                            <div
-                              key={item.id}
-                              className="text-[9px] px-0.5 py-0.5 rounded-md leading-none text-center font-extrabold w-full truncate"
-                              style={{
-                                backgroundColor: bgColor,
-                                color: textColor,
-                              }}
-                              title={`${item.title} ¥${item.amount}`}
-                            >
-                              ¥{item.amount.toLocaleString()}
-                            </div>
-                          );
-                        })}
+                        {/* 収入表示（緑系） */}
+                        {dayIncomes.map((inc) => (
+                          <div
+                            key={inc.id}
+                            className="text-[9px] px-0.5 py-0.5 rounded-md leading-none text-center font-extrabold w-full truncate"
+                            style={{
+                              backgroundColor: "#EEF5EE",
+                              color: "#6F9569",
+                            }}
+                          >
+                            +¥{inc.amount.toLocaleString()}
+                          </div>
+                        ))}
+                        {/* 支出表示 */}
+                        {dayExpenses.map((item) => (
+                          <div
+                            key={item.id}
+                            className="text-[9px] px-0.5 py-0.5 rounded-md leading-none text-center font-extrabold w-full truncate"
+                            style={{
+                              backgroundColor:
+                                item.ownership === "husband"
+                                  ? "#EAF3FA"
+                                  : item.ownership === "wife"
+                                    ? "#FCE9ED"
+                                    : "#F5F2EF",
+                              color:
+                                item.ownership === "husband"
+                                  ? "#78B4E2"
+                                  : item.ownership === "wife"
+                                    ? "#F28FA4"
+                                    : "#79665A",
+                            }}
+                          >
+                            -¥{item.amount.toLocaleString()}
+                          </div>
+                        ))}
                       </div>
                     </div>
                   );
@@ -531,7 +487,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* 今月の収入エリア */}
+            {/* 収入エリア */}
             <div
               className="p-3.5 rounded-2xl shadow-sm bg-white space-y-2.5 w-full"
               style={{ border: "1px solid #EAE3DD" }}
@@ -541,7 +497,6 @@ export default function Home() {
                   今月の収入
                 </h3>
               </div>
-
               <div className="grid grid-cols-2 gap-2.5 w-full">
                 <button
                   type="button"
@@ -591,36 +546,13 @@ export default function Home() {
                   </div>
                 </button>
               </div>
-
-              <div
-                className="p-2.5 rounded-xl text-center w-full flex flex-col items-center justify-center"
-                style={{
-                  backgroundColor: "#EEF5EE",
-                  border: "1px solid #EAE3DD",
-                }}
-              >
-                <div
-                  className="flex items-center justify-center gap-1 font-bold text-[11px]"
-                  style={{ color: "#A6CBAA" }}
-                >
-                  <Coins className="w-3.5 h-3.5" />
-                  <span>夫婦の収入合計</span>
-                </div>
-                <div
-                  className="text-sm font-extrabold mt-0.5"
-                  style={{ color: "#79665A" }}
-                >
-                  ¥ {totalIncome.toLocaleString()}
-                </div>
-              </div>
             </div>
           </main>
         </div>
-
         <BottomNav />
       </div>
 
-      {/* 収入入力・編集モーダル */}
+      {/* 収入入力モーダル（日付プルダウン付き） */}
       {incomeModalTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div
@@ -644,34 +576,56 @@ export default function Home() {
             <form onSubmit={handleSaveIncome} className="space-y-3">
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                 {tempIncomes.map((item) => (
-                  <div key={item.id} className="flex items-center gap-2">
-                    <select
-                      value={item.category}
-                      onChange={(e) =>
-                        handleIncomeChange(item.id, "category", e.target.value)
-                      }
-                      className="w-1/2 rounded-xl p-2 text-xs outline-none bg-white cursor-pointer"
-                      style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
-                    >
-                      {INCOME_CATEGORIES.map((cat) => (
-                        <option key={cat} value={cat}>
-                          {cat}
-                        </option>
-                      ))}
-                    </select>
+                  <div
+                    key={item.id}
+                    className="p-2 rounded-xl border border-[#EAE3DD] space-y-2"
+                  >
+                    <div className="flex gap-2">
+                      {/* 日付プルダウン */}
+                      <select
+                        value={item.day || 1}
+                        onChange={(e) =>
+                          handleIncomeChange(item.id, "day", e.target.value)
+                        }
+                        className="w-1/3 rounded-lg p-1.5 text-xs outline-none bg-white border border-[#EAE3DD]"
+                      >
+                        {Array.from({ length: 31 }, (_, i) => i + 1).map(
+                          (d) => (
+                            <option key={d} value={d}>
+                              {d}日
+                            </option>
+                          ),
+                        )}
+                      </select>
 
-                    <div className="w-1/2 flex items-center gap-1">
+                      {/* カテゴリ */}
+                      <select
+                        value={item.category}
+                        onChange={(e) =>
+                          handleIncomeChange(
+                            item.id,
+                            "category",
+                            e.target.value,
+                          )
+                        }
+                        className="w-2/3 rounded-lg p-1.5 text-xs outline-none bg-white border border-[#EAE3DD]"
+                      >
+                        {INCOME_CATEGORIES.map((cat) => (
+                          <option key={cat} value={cat}>
+                            {cat}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-1">
                       <input
                         type="number"
                         value={item.amount || ""}
                         onChange={(e) =>
                           handleIncomeChange(item.id, "amount", e.target.value)
                         }
-                        className="w-full rounded-xl p-2 text-xs outline-none bg-white"
-                        style={{
-                          border: "1px solid #EAE3DD",
-                          color: "#79665A",
-                        }}
+                        className="w-full rounded-lg p-1.5 text-xs outline-none bg-white border border-[#EAE3DD]"
                         placeholder="金額 (円)"
                       />
                       {tempIncomes.length > 1 && (
@@ -698,7 +652,7 @@ export default function Home() {
                   backgroundColor: "#FFF5F7",
                 }}
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-4 h-4" /> 行を追加
               </button>
 
               <div className="flex gap-2 pt-2">
@@ -740,48 +694,80 @@ export default function Home() {
               className="font-bold text-sm text-center"
               style={{ color: "#79665A" }}
             >
-              {selectedDateStr} の引き落とし内訳
+              {selectedDateStr} の内訳
             </h3>
 
             <div className="space-y-2 max-h-60 overflow-y-auto">
-              {selectedDayExpenses.length === 0 ? (
+              {selectedDayIncomes.length === 0 &&
+              selectedDayExpenses.length === 0 ? (
                 <p className="text-center text-gray-400 py-4 text-xs">
-                  この日の引き落としはありません。
+                  この日の予定はありません。
                 </p>
               ) : (
-                selectedDayExpenses.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-2.5 rounded-xl flex items-center justify-between"
-                    style={{
-                      backgroundColor: "#FFFCF9",
-                      border: "1px solid #EAE3DD",
-                    }}
-                  >
-                    <div>
+                <>
+                  {selectedDayIncomes.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-2.5 rounded-xl flex items-center justify-between bg-[#EEF5EE]"
+                      style={{ border: "1px solid #EAE3DD" }}
+                    >
+                      <div>
+                        <div
+                          className="font-bold text-xs"
+                          style={{ color: "#6F9569" }}
+                        >
+                          [収入] {item.category}
+                        </div>
+                        <div
+                          className="text-[10px]"
+                          style={{ color: "#A99A8E" }}
+                        >
+                          {item.ownership === "husband"
+                            ? husbandName
+                            : wifeName}
+                        </div>
+                      </div>
                       <div
-                        className="font-bold text-xs"
+                        className="font-extrabold text-sm"
+                        style={{ color: "#6F9569" }}
+                      >
+                        +¥ {item.amount.toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                  {selectedDayExpenses.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-2.5 rounded-xl flex items-center justify-between bg-white"
+                      style={{ border: "1px solid #EAE3DD" }}
+                    >
+                      <div>
+                        <div
+                          className="font-bold text-xs"
+                          style={{ color: "#79665A" }}
+                        >
+                          [支出] {item.title}
+                        </div>
+                        <div
+                          className="text-[10px]"
+                          style={{ color: "#A99A8E" }}
+                        >
+                          {item.ownership === "husband"
+                            ? husbandName
+                            : item.ownership === "wife"
+                              ? wifeName
+                              : "共通"}
+                        </div>
+                      </div>
+                      <div
+                        className="font-extrabold text-sm"
                         style={{ color: "#79665A" }}
                       >
-                        {item.title}
-                      </div>
-                      <div className="text-[10px]" style={{ color: "#A99A8E" }}>
-                        区分:{" "}
-                        {item.ownership === "husband"
-                          ? husbandName
-                          : item.ownership === "wife"
-                            ? wifeName
-                            : "共通"}
+                        -¥ {item.amount.toLocaleString()}
                       </div>
                     </div>
-                    <div
-                      className="font-extrabold text-sm"
-                      style={{ color: "#79665A" }}
-                    >
-                      ¥ {item.amount.toLocaleString()}
-                    </div>
-                  </div>
-                ))
+                  ))}
+                </>
               )}
             </div>
 
@@ -796,7 +782,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 登録用モーダル */}
+      {/* 支出登録用モーダル */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div
@@ -821,8 +807,7 @@ export default function Home() {
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full rounded-xl p-2 text-xs outline-none bg-white"
-                  style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                  className="w-full rounded-xl p-2 text-xs outline-none bg-white border border-[#EAE3DD]"
                   placeholder="例: 電気代, 食費"
                   required
                 />
@@ -871,8 +856,7 @@ export default function Home() {
                     type="number"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    className="w-full rounded-xl p-2 text-xs outline-none bg-white"
-                    style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                    className="w-full rounded-xl p-2 text-xs outline-none bg-white border border-[#EAE3DD]"
                     placeholder="12000"
                     required
                   />
@@ -890,8 +874,7 @@ export default function Home() {
                     max="31"
                     value={dueDay}
                     onChange={(e) => setDueDay(e.target.value)}
-                    className="w-full rounded-xl p-2 text-xs outline-none bg-white"
-                    style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                    className="w-full rounded-xl p-2 text-xs outline-none bg-white border border-[#EAE3DD]"
                     required
                   />
                 </div>
@@ -911,8 +894,7 @@ export default function Home() {
                       e.target.value as "common" | "husband" | "wife",
                     )
                   }
-                  className="w-full rounded-xl p-2 text-xs outline-none bg-white"
-                  style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                  className="w-full rounded-xl p-2 text-xs outline-none bg-white border border-[#EAE3DD]"
                 >
                   <option value="common">夫婦共通</option>
                   <option value="husband">{husbandName}・個人</option>
@@ -924,15 +906,13 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="flex-1 p-2 rounded-xl font-semibold text-xs cursor-pointer"
-                  style={{ backgroundColor: "#EAE3DD", color: "#79665A" }}
+                  className="flex-1 p-2 rounded-xl font-semibold text-xs cursor-pointer bg-[#EAE3DD] text-[#79665A]"
                 >
                   キャンセル
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 text-white p-2 rounded-xl font-semibold text-xs shadow-md cursor-pointer"
-                  style={{ backgroundColor: "#F28FA4" }}
+                  className="flex-1 text-white p-2 rounded-xl font-semibold text-xs shadow-md cursor-pointer bg-[#F28FA4]"
                 >
                   追加する
                 </button>
