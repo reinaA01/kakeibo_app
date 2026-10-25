@@ -10,6 +10,7 @@ import {
   query,
   orderBy,
   addDoc,
+  deleteDoc,
 } from "firebase/firestore";
 import { getActualWithdrawalDate, formatDateToString } from "@/lib/dateUtils";
 import {
@@ -36,7 +37,7 @@ interface IncomeEntry {
   id: string;
   category: "給与" | "副業" | "給付金・手当" | "臨時収入" | "その他";
   amount: number;
-  day: number; // 日付（1〜31）
+  day: number; // 収入の日付（1〜31日）
   ownership: "husband" | "wife";
 }
 
@@ -49,6 +50,7 @@ const INCOME_CATEGORIES: IncomeEntry["category"][] = [
 ];
 
 export default function Home() {
+  // 表示中の年月状態（初期値: 2026年10月）
   const [currentYear, setCurrentYear] = useState(2026);
   const [currentMonth, setCurrentMonth] = useState(10);
 
@@ -62,17 +64,20 @@ export default function Home() {
     "common",
   );
 
+  // 表示名
   const [husbandName, setHusbandName] = useState("夫");
   const [wifeName, setWifeName] = useState("妻");
 
-  // 収入データ（統合管理）
+  // 収入データ（Firestore連携）
   const [incomes, setIncomes] = useState<IncomeEntry[]>([]);
 
+  // 収入入力モーダルの状態
   const [incomeModalTarget, setIncomeModalTarget] = useState<
     "husband" | "wife" | null
   >(null);
   const [tempIncomes, setTempIncomes] = useState<IncomeEntry[]>([]);
 
+  // 日付詳細モーダル用
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
   const [selectedDayExpenses, setSelectedDayExpenses] = useState<ExpenseItem[]>(
     [],
@@ -95,6 +100,22 @@ export default function Home() {
   const totalIncome = husbandIncomeTotal + wifeIncomeTotal;
 
   useEffect(() => {
+    const localConfig = localStorage.getItem("app_config");
+    if (localConfig) {
+      try {
+        const parsed = JSON.parse(localConfig);
+        if (parsed.husbandName) setHusbandName(parsed.husbandName);
+        if (parsed.wifeName) setWifeName(parsed.wifeName);
+      } catch (e) {}
+    }
+
+    const localExpenses = localStorage.getItem("app_expenses");
+    if (localExpenses) {
+      try {
+        setExpenses(JSON.parse(localExpenses));
+      } catch (e) {}
+    }
+
     const fetchData = async () => {
       try {
         if (db) {
@@ -105,19 +126,18 @@ export default function Home() {
             if (data.wifeName) setWifeName(data.wifeName);
           }
 
-          // 支出取得
-          const expQuery = query(
-            collection(db, "expenses"),
-            orderBy("dueDay", "asc"),
-          );
-          const expSnapshot = await getDocs(expQuery);
-          const expItems: ExpenseItem[] = [];
-          expSnapshot.forEach((docItem) => {
-            expItems.push({ id: docItem.id, ...docItem.data() } as ExpenseItem);
+          const q = query(collection(db, "expenses"), orderBy("dueDay", "asc"));
+          const querySnapshot = await getDocs(q);
+          const items: ExpenseItem[] = [];
+          querySnapshot.forEach((docItem) => {
+            items.push({ id: docItem.id, ...docItem.data() } as ExpenseItem);
           });
-          setExpenses(expItems);
+          if (items.length > 0) {
+            setExpenses(items);
+            localStorage.setItem("app_expenses", JSON.stringify(items));
+          }
 
-          // 収入取得
+          // 収入データをFirestoreから取得（キャッシュ削除対策）
           const incSnapshot = await getDocs(collection(db, "incomes"));
           const incItems: IncomeEntry[] = [];
           incSnapshot.forEach((docItem) => {
@@ -126,13 +146,14 @@ export default function Home() {
           setIncomes(incItems);
         }
       } catch (e) {
-        console.warn("データ取得エラー:", e);
+        console.warn("オフラインモードで動作中:", e);
       }
     };
 
     fetchData();
   }, []);
 
+  // 月を前後に動かすハンドラー
   const handlePrevMonth = () => {
     if (currentMonth === 1) {
       setCurrentYear(currentYear - 1);
@@ -166,7 +187,9 @@ export default function Home() {
     try {
       if (db) {
         const docRef = await addDoc(collection(db, "expenses"), newItem);
-        setExpenses([...expenses, { id: docRef.id, ...newItem }]);
+        const updated = [...expenses, { id: docRef.id, ...newItem }];
+        setExpenses(updated);
+        localStorage.setItem("app_expenses", JSON.stringify(updated));
       }
     } catch (e) {
       console.error(e);
@@ -177,6 +200,7 @@ export default function Home() {
     setIsModalOpen(false);
   };
 
+  // 個人（夫・妻）限定の引き落とし合計額
   const husbandTotal = expenses
     .filter((e) => e.ownership === "husband")
     .reduce((sum, item) => sum + item.amount, 0);
@@ -185,6 +209,7 @@ export default function Home() {
     .filter((e) => e.ownership === "wife")
     .reduce((sum, item) => sum + item.amount, 0);
 
+  // 収入モーダルを開く
   const handleOpenIncomeModal = (target: "husband" | "wife") => {
     setIncomeModalTarget(target);
     const initialList = incomes.filter((i) => i.ownership === target);
@@ -217,11 +242,22 @@ export default function Home() {
     ]);
   };
 
-  const handleRemoveIncomeRow = (id: string) => {
+  const handleRemoveIncomeRow = async (id: string) => {
+    try {
+      if (db && !id.startsWith("17")) {
+        await deleteDoc(doc(db, "incomes", id));
+      }
+    } catch (e) {
+      console.error(e);
+    }
     setTempIncomes(tempIncomes.filter((item) => item.id !== id));
   };
 
-  const handleIncomeChange = (id: string, field: string, value: any) => {
+  const handleIncomeChange = (
+    id: string,
+    field: "category" | "amount" | "day",
+    value: any,
+  ) => {
     setTempIncomes(
       tempIncomes.map((item) => {
         if (item.id === id) {
@@ -244,21 +280,34 @@ export default function Home() {
 
     try {
       if (db) {
+        const savedIncomes = [
+          ...incomes.filter((i) => i.ownership !== incomeModalTarget),
+        ];
+
         for (const item of tempIncomes) {
-          if (!item.id.length || item.id.length > 15) {
-            const docRef = await addDoc(collection(db, "incomes"), {
+          if (item.amount > 0) {
+            const incomeData = {
               category: item.category,
               amount: item.amount,
-              day: item.day,
+              day: item.day || 1,
               ownership: incomeModalTarget,
-            });
-            item.id = docRef.id;
+            };
+
+            // 既存または新規の判定してFirestoreに保存
+            if (item.id.length > 15 && !item.id.includes("-")) {
+              // 既にFirestoreにある場合はそのまま保持
+              savedIncomes.push(item);
+            } else {
+              // 新規追加
+              const docRef = await addDoc(
+                collection(db, "incomes"),
+                incomeData,
+              );
+              savedIncomes.push({ id: docRef.id, ...incomeData });
+            }
           }
         }
-        const otherIncomes = incomes.filter(
-          (i) => i.ownership !== incomeModalTarget,
-        );
-        setIncomes([...otherIncomes, ...tempIncomes]);
+        setIncomes(savedIncomes);
       }
     } catch (e) {
       console.error(e);
@@ -267,6 +316,7 @@ export default function Home() {
     setIncomeModalTarget(null);
   };
 
+  // 暦通りのカレンダー計算と営業日調整ロジック
   const getDaysInMonth = (year: number, month: number) =>
     new Date(year, month, 0).getDate();
   const getFirstDayOfMonth = (year: number, month: number) =>
@@ -275,12 +325,13 @@ export default function Home() {
   const totalDays = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
 
-  // 日付ごとの支出マップ
+  // 日付ごとの支出マップを作成
   const expensesByDate: { [key: string]: ExpenseItem[] } = {};
   expenses.forEach((item) => {
     if (item.expenseType === "variable" && (!item.amount || item.amount <= 0)) {
       return;
     }
+
     let dateStr = "";
     if (item.expenseType === "variable") {
       const formattedDay = String(item.dueDay).padStart(2, "0");
@@ -301,7 +352,7 @@ export default function Home() {
     expensesByDate[dateStr].push(item);
   });
 
-  // 日付ごとの収入マップ
+  // 日付ごとの収入マップを作成
   const incomesByDate: { [key: string]: IncomeEntry[] } = {};
   incomes.forEach((item) => {
     const formattedDay = String(item.day || 1).padStart(2, "0");
@@ -327,6 +378,7 @@ export default function Home() {
     >
       <div className="w-full max-w-lg mx-auto min-h-screen relative flex flex-col justify-between">
         <div>
+          {/* ヘッダー */}
           <header
             className="flex justify-between items-center px-4 h-14 bg-white/90 backdrop-blur sticky top-0 z-10 w-full"
             style={{ borderBottom: "1px solid #EAE3DD" }}
@@ -348,6 +400,7 @@ export default function Home() {
           </header>
 
           <main className="p-3 space-y-3 w-full">
+            {/* 年月ナビゲーション（＜ ＞で月変更） */}
             <div
               className="flex justify-center items-center gap-4 text-sm font-bold"
               style={{ color: "#79665A" }}
@@ -371,6 +424,65 @@ export default function Home() {
               </button>
             </div>
 
+            {/* 夫婦別支出サマリー（個人限定） */}
+            <div className="grid grid-cols-2 gap-2.5 w-full">
+              <div
+                className="p-3 rounded-xl shadow-sm text-center w-full"
+                style={{
+                  backgroundColor: "#EAF3FA",
+                  border: "1px solid #EAE3DD",
+                }}
+              >
+                <div
+                  className="flex items-center justify-center gap-1 font-bold mb-0.5 text-xs"
+                  style={{ color: "#78B4E2" }}
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>{husbandName}</span>
+                </div>
+                <div
+                  className="text-base font-extrabold"
+                  style={{ color: "#79665A" }}
+                >
+                  ¥ {husbandTotal.toLocaleString()}
+                </div>
+                <div
+                  className="text-[10px] mt-0.5"
+                  style={{ color: "#A99A8E" }}
+                >
+                  今月の引き落とし額
+                </div>
+              </div>
+
+              <div
+                className="p-3 rounded-xl shadow-sm text-center w-full"
+                style={{
+                  backgroundColor: "#FCE9ED",
+                  border: "1px solid #EAE3DD",
+                }}
+              >
+                <div
+                  className="flex items-center justify-center gap-1 font-bold mb-0.5 text-xs"
+                  style={{ color: "#F28FA4" }}
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>{wifeName}</span>
+                </div>
+                <div
+                  className="text-base font-extrabold"
+                  style={{ color: "#79665A" }}
+                >
+                  ¥ {wifeTotal.toLocaleString()}
+                </div>
+                <div
+                  className="text-[10px] mt-0.5"
+                  style={{ color: "#A99A8E" }}
+                >
+                  今月の引き落とし額
+                </div>
+              </div>
+            </div>
+
             {/* カレンダー */}
             <div
               className="p-3 rounded-2xl shadow-sm bg-white w-full"
@@ -385,7 +497,7 @@ export default function Home() {
                     className="w-3.5 h-3.5"
                     style={{ color: "#F28FA4" }}
                   />
-                  カレンダー
+                  今月の支出
                 </h2>
               </div>
 
@@ -402,7 +514,9 @@ export default function Home() {
                 <span style={{ color: "#78B4E2" }}>土</span>
               </div>
 
+              {/* 暦通りのカレンダー生成 */}
               <div className="grid grid-cols-7 gap-1.5 w-full">
+                {/* 月初めの余白セル */}
                 {Array.from({ length: firstDay }).map((_, index) => (
                   <div
                     key={`empty-${index}`}
@@ -410,6 +524,7 @@ export default function Home() {
                   ></div>
                 ))}
 
+                {/* 各日付セル */}
                 {Array.from({ length: totalDays }).map((_, index) => {
                   const day = index + 1;
                   const formattedDay = String(day).padStart(2, "0");
@@ -444,7 +559,7 @@ export default function Home() {
                       </div>
 
                       <div className="space-y-0.5 overflow-hidden w-full my-auto">
-                        {/* 収入表示（緑系） */}
+                        {/* 収入表示（緑） */}
                         {dayIncomes.map((inc) => (
                           <div
                             key={inc.id}
@@ -458,28 +573,31 @@ export default function Home() {
                           </div>
                         ))}
                         {/* 支出表示 */}
-                        {dayExpenses.map((item) => (
-                          <div
-                            key={item.id}
-                            className="text-[9px] px-0.5 py-0.5 rounded-md leading-none text-center font-extrabold w-full truncate"
-                            style={{
-                              backgroundColor:
-                                item.ownership === "husband"
-                                  ? "#EAF3FA"
-                                  : item.ownership === "wife"
-                                    ? "#FCE9ED"
-                                    : "#F5F2EF",
-                              color:
-                                item.ownership === "husband"
-                                  ? "#78B4E2"
-                                  : item.ownership === "wife"
-                                    ? "#F28FA4"
-                                    : "#79665A",
-                            }}
-                          >
-                            -¥{item.amount.toLocaleString()}
-                          </div>
-                        ))}
+                        {dayExpenses.map((item) => {
+                          let bgColor = "#F5F2EF";
+                          let textColor = "#79665A";
+                          if (item.ownership === "husband") {
+                            bgColor = "#EAF3FA";
+                            textColor = "#78B4E2";
+                          } else if (item.ownership === "wife") {
+                            bgColor = "#FCE9ED";
+                            textColor = "#F28FA4";
+                          }
+
+                          return (
+                            <div
+                              key={item.id}
+                              className="text-[9px] px-0.5 py-0.5 rounded-md leading-none text-center font-extrabold w-full truncate"
+                              style={{
+                                backgroundColor: bgColor,
+                                color: textColor,
+                              }}
+                              title={`${item.title} ¥${item.amount}`}
+                            >
+                              -¥{item.amount.toLocaleString()}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -487,7 +605,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* 収入エリア */}
+            {/* 今月の収入エリア */}
             <div
               className="p-3.5 rounded-2xl shadow-sm bg-white space-y-2.5 w-full"
               style={{ border: "1px solid #EAE3DD" }}
@@ -497,6 +615,7 @@ export default function Home() {
                   今月の収入
                 </h3>
               </div>
+
               <div className="grid grid-cols-2 gap-2.5 w-full">
                 <button
                   type="button"
@@ -546,13 +665,36 @@ export default function Home() {
                   </div>
                 </button>
               </div>
+
+              <div
+                className="p-2.5 rounded-xl text-center w-full flex flex-col items-center justify-center"
+                style={{
+                  backgroundColor: "#EEF5EE",
+                  border: "1px solid #EAE3DD",
+                }}
+              >
+                <div
+                  className="flex items-center justify-center gap-1 font-bold text-[11px]"
+                  style={{ color: "#A6CBAA" }}
+                >
+                  <Coins className="w-3.5 h-3.5" />
+                  <span>夫婦の収入合計</span>
+                </div>
+                <div
+                  className="text-sm font-extrabold mt-0.5"
+                  style={{ color: "#79665A" }}
+                >
+                  ¥ {totalIncome.toLocaleString()}
+                </div>
+              </div>
             </div>
           </main>
         </div>
+
         <BottomNav />
       </div>
 
-      {/* 収入入力モーダル（日付プルダウン付き） */}
+      {/* 収入入力・編集モーダル（日付プルダウン付き） */}
       {incomeModalTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div
@@ -752,6 +894,7 @@ export default function Home() {
                           className="text-[10px]"
                           style={{ color: "#A99A8E" }}
                         >
+                          区分:{" "}
                           {item.ownership === "husband"
                             ? husbandName
                             : item.ownership === "wife"
@@ -782,7 +925,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 支出登録用モーダル */}
+      {/* 登録用モーダル */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div
@@ -807,7 +950,8 @@ export default function Home() {
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full rounded-xl p-2 text-xs outline-none bg-white border border-[#EAE3DD]"
+                  className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                  style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                   placeholder="例: 電気代, 食費"
                   required
                 />
@@ -856,7 +1000,8 @@ export default function Home() {
                     type="number"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    className="w-full rounded-xl p-2 text-xs outline-none bg-white border border-[#EAE3DD]"
+                    className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                    style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                     placeholder="12000"
                     required
                   />
@@ -874,7 +1019,8 @@ export default function Home() {
                     max="31"
                     value={dueDay}
                     onChange={(e) => setDueDay(e.target.value)}
-                    className="w-full rounded-xl p-2 text-xs outline-none bg-white border border-[#EAE3DD]"
+                    className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                    style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                     required
                   />
                 </div>
@@ -894,7 +1040,8 @@ export default function Home() {
                       e.target.value as "common" | "husband" | "wife",
                     )
                   }
-                  className="w-full rounded-xl p-2 text-xs outline-none bg-white border border-[#EAE3DD]"
+                  className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                  style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                 >
                   <option value="common">夫婦共通</option>
                   <option value="husband">{husbandName}・個人</option>
@@ -906,13 +1053,15 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="flex-1 p-2 rounded-xl font-semibold text-xs cursor-pointer bg-[#EAE3DD] text-[#79665A]"
+                  className="flex-1 p-2 rounded-xl font-semibold text-xs cursor-pointer"
+                  style={{ backgroundColor: "#EAE3DD", color: "#79665A" }}
                 >
                   キャンセル
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 text-white p-2 rounded-xl font-semibold text-xs shadow-md cursor-pointer bg-[#F28FA4]"
+                  className="flex-1 text-white p-2 rounded-xl font-semibold text-xs shadow-md cursor-pointer"
+                  style={{ backgroundColor: "#F28FA4" }}
                 >
                   追加する
                 </button>
