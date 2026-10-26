@@ -31,6 +31,8 @@ interface ExpenseItem {
   amount: number;
   dueDay: number;
   ownership: "common" | "husband" | "wife";
+  confirmDay?: number | null;
+  createdAt?: string; // "YYYY-MM"
 }
 
 interface IncomeEntry {
@@ -62,20 +64,17 @@ export default function Home() {
   const [ownership, setOwnership] = useState<"common" | "husband" | "wife">(
     "common",
   );
+  const [confirmDay, setConfirmDay] = useState("20");
 
   const [husbandName, setHusbandName] = useState("夫");
   const [wifeName, setWifeName] = useState("妻");
 
-  // 収入データ（Firestore連携）
   const [incomes, setIncomes] = useState<IncomeEntry[]>([]);
-
-  // 収入入力モーダルの状態
   const [incomeModalTarget, setIncomeModalTarget] = useState<
     "husband" | "wife" | null
   >(null);
   const [tempIncomes, setTempIncomes] = useState<IncomeEntry[]>([]);
 
-  // 日付詳細モーダル用
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
   const [selectedDayExpenses, setSelectedDayExpenses] = useState<ExpenseItem[]>(
     [],
@@ -135,7 +134,6 @@ export default function Home() {
             localStorage.setItem("app_expenses", JSON.stringify(items));
           }
 
-          // 収入データをFirestoreから取得
           const incSnapshot = await getDocs(collection(db, "incomes"));
           const incItems: IncomeEntry[] = [];
           incSnapshot.forEach((docItem) => {
@@ -173,12 +171,16 @@ export default function Home() {
     e.preventDefault();
     if (!title) return;
 
+    const currentYM = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
+
     const newItem = {
       title,
       expenseType,
       amount: Number(amount) || 0,
       dueDay: Number(dueDay),
       ownership,
+      confirmDay: expenseType === "variable" ? Number(confirmDay) : null,
+      createdAt: currentYM, // 登録された年月を保存
     };
 
     try {
@@ -197,11 +199,20 @@ export default function Home() {
     setIsModalOpen(false);
   };
 
-  const husbandTotal = expenses
+  // 変動費は登録された月 (createdAt) に合致する場合のみ、その月に反映させる
+  const activeSelectedYM = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
+  const currentMonthFilteredExpenses = expenses.filter((item) => {
+    if (item.expenseType === "variable") {
+      return item.createdAt === activeSelectedYM && item.amount > 0;
+    }
+    return true; // 固定費は全月に反映
+  });
+
+  const husbandTotal = currentMonthFilteredExpenses
     .filter((e) => e.ownership === "husband")
     .reduce((sum, item) => sum + item.amount, 0);
 
-  const wifeTotal = expenses
+  const wifeTotal = currentMonthFilteredExpenses
     .filter((e) => e.ownership === "wife")
     .reduce((sum, item) => sum + item.amount, 0);
 
@@ -237,7 +248,6 @@ export default function Home() {
     ]);
   };
 
-  // 収入の行を削除（Firestoreからも削除）
   const handleRemoveIncomeRow = async (id: string) => {
     try {
       if (db && !id.startsWith("17")) {
@@ -280,7 +290,6 @@ export default function Home() {
           ...incomes.filter((i) => i.ownership !== incomeModalTarget),
         ];
 
-        // 削除された項目を特定してFirestoreから削除
         const currentDbItems = incomes.filter(
           (i) => i.ownership === incomeModalTarget,
         );
@@ -329,11 +338,7 @@ export default function Home() {
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
 
   const expensesByDate: { [key: string]: ExpenseItem[] } = {};
-  expenses.forEach((item) => {
-    if (item.expenseType === "variable" && (!item.amount || item.amount <= 0)) {
-      return;
-    }
-
+  currentMonthFilteredExpenses.forEach((item) => {
     let dateStr = "";
     if (item.expenseType === "variable") {
       const formattedDay = String(item.dueDay).padStart(2, "0");
@@ -685,7 +690,6 @@ export default function Home() {
         <BottomNav />
       </div>
 
-      {/* 収入入力・編集モーダル（日付プルダウン＋各行にごみ箱ボタン付き） */}
       {incomeModalTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div
@@ -759,7 +763,6 @@ export default function Home() {
                         className="w-full rounded-lg p-1.5 text-xs outline-none bg-white border border-[#EAE3DD]"
                         placeholder="金額 (円)"
                       />
-                      {/* ごみ箱ボタン */}
                       <button
                         type="button"
                         onClick={() => handleRemoveIncomeRow(item.id)}
@@ -808,7 +811,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* 日付詳細ポップアップモーダル */}
       {selectedDateStr && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div
@@ -914,7 +916,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* 登録用モーダル */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div
@@ -941,7 +942,7 @@ export default function Home() {
                   onChange={(e) => setTitle(e.target.value)}
                   className="w-full rounded-xl p-2 text-xs outline-none bg-white"
                   style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
-                  placeholder="例: 電気代, 食費"
+                  placeholder="例: 水道光熱費, クレカ"
                   required
                 />
               </div>
@@ -972,7 +973,7 @@ export default function Home() {
                       onChange={() => setExpenseType("variable")}
                       className="accent-[#F28FA4]"
                     />
-                    <span>変動費</span>
+                    <span>変動費 (LINE通知対象)</span>
                   </label>
                 </div>
               </div>
@@ -991,7 +992,7 @@ export default function Home() {
                     onChange={(e) => setAmount(e.target.value)}
                     className="w-full rounded-xl p-2 text-xs outline-none bg-white"
                     style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
-                    placeholder="12000"
+                    placeholder="10000"
                     required
                   />
                 </div>
@@ -1015,6 +1016,27 @@ export default function Home() {
                 </div>
               </div>
 
+              {expenseType === "variable" && (
+                <div>
+                  <label
+                    className="block text-[11px] font-semibold mb-1"
+                    style={{ color: "#A99A8E" }}
+                  >
+                    金額確定日 (LINE通知日: 日)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={confirmDay}
+                    onChange={(e) => setConfirmDay(e.target.value)}
+                    className="w-full rounded-xl p-2 text-xs outline-none bg-amber-50"
+                    style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                    required
+                  />
+                </div>
+              )}
+
               <div>
                 <label
                   className="block text-[11px] font-semibold mb-1"
@@ -1032,9 +1054,9 @@ export default function Home() {
                   className="w-full rounded-xl p-2 text-xs outline-none bg-white"
                   style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                 >
-                  <option value="common">夫婦共通</option>
-                  <option value="husband">{husbandName}・個人</option>
-                  <option value="wife">{wifeName}・個人</option>
+                  <option value="common">共通</option>
+                  <option value="husband">{husbandName}</option>
+                  <option value="wife">{wifeName}</option>
                 </select>
               </div>
 

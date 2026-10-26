@@ -3,31 +3,81 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs } from "firebase/firestore";
 import {
   Home as HomeIcon,
   ChevronLeft,
   ChevronRight,
-  Users,
-  User,
-  Utensils,
-  ShoppingBag,
-  Star,
   ChevronDown,
+  Tag,
 } from "lucide-react";
 import BottomNav from "@/src/components/BottomNav";
 
-export default function AnalysisPage() {
-  const [toggleMode, setToggleMode] = useState<"expense" | "category">(
-    "expense",
-  );
+interface DailyRecord {
+  id?: string;
+  dateStr: string;
+  category: string;
+  amount: number;
+  memo: string;
+}
 
-  // 表示名
+interface FixedExpense {
+  id: string;
+  title: string;
+  amount: number;
+  dueDay: number;
+  ownership: "common" | "husband" | "wife";
+  expenseType: "fixed" | "variable";
+  createdAt?: string; // "YYYY-MM"
+}
+
+interface CategoryItem {
+  id: string;
+  name: string;
+  color: string;
+  isSystem?: boolean;
+}
+
+export default function AnalysisPage() {
   const [husbandName, setHusbandName] = useState("夫");
   const [wifeName, setWifeName] = useState("妻");
+  const [commonColor, setCommonColor] = useState("#C9BFB7");
+  const [husbandColor, setHusbandColor] = useState("#78B4E2");
+  const [wifeColor, setWifeColor] = useState("#F28FA4");
+
+  const [categories, setCategories] = useState<CategoryItem[]>([
+    { id: "1", name: "食費", color: "#A6CBAA" },
+    { id: "2", name: "日用品費", color: "#E8C170" },
+    { id: "3", name: "その他", color: "#B6A4E2" },
+  ]);
+
+  const [records, setRecords] = useState<DailyRecord[]>([]);
+  const [expenses, setExpenses] = useState<FixedExpense[]>([]);
+
+  const [selectedYearMonth, setSelectedYearMonth] = useState("2026-10");
 
   useEffect(() => {
-    const fetchConfig = async () => {
+    const localConfig = localStorage.getItem("app_config");
+    if (localConfig) {
+      try {
+        const parsed = JSON.parse(localConfig);
+        if (parsed.husbandName) setHusbandName(parsed.husbandName);
+        if (parsed.wifeName) setWifeName(parsed.wifeName);
+        if (parsed.commonColor) setCommonColor(parsed.commonColor);
+        if (parsed.husbandColor) setHusbandColor(parsed.husbandColor);
+        if (parsed.wifeColor) setWifeColor(parsed.wifeColor);
+        if (parsed.categories) setCategories(parsed.categories);
+      } catch (e) {}
+    }
+
+    const localExpenses = localStorage.getItem("app_expenses");
+    if (localExpenses) {
+      try {
+        setExpenses(JSON.parse(localExpenses));
+      } catch (e) {}
+    }
+
+    const fetchData = async () => {
       try {
         if (db) {
           const configSnap = await getDoc(doc(db, "settings", "config"));
@@ -35,76 +85,158 @@ export default function AnalysisPage() {
             const data = configSnap.data();
             if (data.husbandName) setHusbandName(data.husbandName);
             if (data.wifeName) setWifeName(data.wifeName);
+            if (data.commonColor) setCommonColor(data.commonColor);
+            if (data.husbandColor) setHusbandColor(data.husbandColor);
+            if (data.wifeColor) setWifeColor(data.wifeColor);
+            if (data.categories) setCategories(data.categories);
+          }
+
+          const recordSnap = await getDocs(collection(db, "weekly_records"));
+          const loadedRecords: DailyRecord[] = [];
+          recordSnap.forEach((docItem) => {
+            loadedRecords.push({
+              id: docItem.id,
+              ...docItem.data(),
+            } as DailyRecord);
+          });
+          setRecords(loadedRecords);
+
+          const expenseSnap = await getDocs(collection(db, "expenses"));
+          const loadedExpenses: FixedExpense[] = [];
+          expenseSnap.forEach((docItem) => {
+            loadedExpenses.push({
+              id: docItem.id,
+              ...docItem.data(),
+            } as FixedExpense);
+          });
+          if (loadedExpenses.length > 0) {
+            setExpenses(loadedExpenses);
+            localStorage.setItem(
+              "app_expenses",
+              JSON.stringify(loadedExpenses),
+            );
           }
         }
       } catch (e) {
-        console.warn("設定の取得失敗:", e);
+        console.warn("データ取得失敗:", e);
       }
     };
-    fetchConfig();
+    fetchData();
   }, []);
 
-  const totalAmount = 71550;
+  const generateMonthOptions = () => {
+    const options = [];
+    const now = new Date(2026, 9, 1);
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      options.push({ value: `${y}-${m}`, label: `${y}年 ${Number(m)}月` });
+    }
+    return options;
+  };
 
-  const breakdownData = [
-    {
-      label: "共通",
-      amount: 14260,
-      percent: 20,
-      color: "#C9BFB7",
-      bg: "#F5F2EF",
-      icon: Users,
-    },
-    {
-      label: husbandName,
-      amount: 16430,
-      percent: 22,
-      color: "#78B4E2",
-      bg: "#EAF3FA",
-      icon: User,
-    },
-    {
-      label: wifeName,
-      amount: 12380,
-      percent: 17,
-      color: "#F28FA4",
-      bg: "#FCE9ED",
-      icon: User,
-    },
-    {
-      label: "食費",
-      amount: 12860,
-      percent: 18,
-      color: "#A6CBAA",
-      bg: "#EEF5EE",
-      icon: Utensils,
-    },
-    {
-      label: "日用品費",
-      amount: 10720,
-      percent: 15,
-      color: "#F5C36B",
-      bg: "#FFF5E5",
-      icon: ShoppingBag,
-    },
-    {
-      label: "その他",
-      amount: 8490,
-      percent: 12,
-      color: "#B6A4E2",
-      bg: "#F3EFFA",
-      icon: Star,
-    },
-  ];
+  const monthOptions = generateMonthOptions();
 
-  const monthlyHistory = [
-    { month: "10月", isCurrent: true, total: 71550 },
-    { month: "9月", isCurrent: false, total: 68320 },
-    { month: "8月", isCurrent: false, total: 62780 },
-    { month: "7月", isCurrent: false, total: 58460 },
-    { month: "6月", isCurrent: false, total: 54230 },
-    { month: "5月", isCurrent: false, total: 49820 },
-  ];
+  const handlePrevMonth = () => {
+    const [y, m] = selectedYearMonth.split("-").map(Number);
+    const d = new Date(y, m - 2, 1);
+    setSelectedYearMonth(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+    );
+  };
+
+  const handleNextMonth = () => {
+    const [y, m] = selectedYearMonth.split("-").map(Number);
+    const d = new Date(y, m, 1);
+    setSelectedYearMonth(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+    );
+  };
+
+  const [displayYear, displayMonth] = selectedYearMonth.split("-");
+
+  const getBreakdownForMonth = (ym: string) => {
+    const monthRecords = records.filter(
+      (r) => r.dateStr && r.dateStr.startsWith(ym),
+    );
+
+    // 変動費は登録された月 (createdAt) が一致する場合のみ集計対象にする
+    const monthExpenses = expenses.filter((ex) => {
+      if (ex.expenseType === "variable") {
+        return ex.createdAt === ym && ex.amount > 0;
+      }
+      return true; // 固定費は常時対象
+    });
+
+    let commonExpenseTotal = 0;
+    let husbandExpenseTotal = 0;
+    let wifeExpenseTotal = 0;
+
+    monthExpenses.forEach((ex) => {
+      if (ex.ownership === "common")
+        commonExpenseTotal += Number(ex.amount) || 0;
+      if (ex.ownership === "husband")
+        husbandExpenseTotal += Number(ex.amount) || 0;
+      if (ex.ownership === "wife") wifeExpenseTotal += Number(ex.amount) || 0;
+    });
+
+    const categoryTotals: { [key: string]: number } = {};
+    categories.forEach((cat) => {
+      categoryTotals[cat.name] = 0;
+    });
+
+    monthRecords.forEach((r) => {
+      if (categoryTotals[r.category] !== undefined) {
+        categoryTotals[r.category] += Number(r.amount) || 0;
+      } else {
+        categoryTotals[r.category] = Number(r.amount) || 0;
+      }
+    });
+
+    const items = [
+      {
+        label: "共通",
+        amount: commonExpenseTotal,
+        color: commonColor,
+        icon: Tag,
+      },
+      {
+        label: husbandName,
+        amount: husbandExpenseTotal,
+        color: husbandColor,
+        icon: Tag,
+      },
+      {
+        label: wifeName,
+        amount: wifeExpenseTotal,
+        color: wifeColor,
+        icon: Tag,
+      },
+    ];
+
+    categories.forEach((cat) => {
+      items.push({
+        label: cat.name,
+        amount: categoryTotals[cat.name] || 0,
+        color: cat.color,
+        icon: Tag,
+      });
+    });
+
+    const total = items.reduce((sum, item) => sum + item.amount, 0);
+
+    const withPercent = items.map((item) => ({
+      ...item,
+      percent: total > 0 ? Math.round((item.amount / total) * 100) : 0,
+    }));
+
+    return { items: withPercent, total };
+  };
+
+  const currentMonthData = getBreakdownForMonth(selectedYearMonth);
+  const totalAmount = currentMonthData.total;
+  const breakdownData = currentMonthData.items;
 
   let cumulativePercent = 0;
   const pieSlices = breakdownData.map((item) => {
@@ -113,6 +245,28 @@ export default function AnalysisPage() {
     const endAngle = (cumulativePercent / 100) * 360;
     return { ...item, startAngle, endAngle };
   });
+
+  const getMonthlyHistory = () => {
+    const history = [];
+    const [y, m] = selectedYearMonth.split("-").map(Number);
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(y, m - 1 - i, 1);
+      const targetYM = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const monthLabel = `${d.getMonth() + 1}月`;
+
+      const monthData = getBreakdownForMonth(targetYM);
+
+      history.push({
+        month: monthLabel,
+        isCurrent: targetYM === selectedYearMonth,
+        total: monthData.total,
+        items: monthData.items,
+      });
+    }
+    return history;
+  };
+
+  const monthlyHistory = getMonthlyHistory();
 
   return (
     <div
@@ -132,12 +286,7 @@ export default function AnalysisPage() {
               <HomeIcon className="w-4 h-4" style={{ color: "#F28FA4" }} />
               <span>家計簿</span>
             </div>
-            <div
-              className="w-8 h-8 text-white rounded-full flex items-center justify-center text-sm font-bold shadow-md"
-              style={{ backgroundColor: "#F28FA4" }}
-            >
-              ＋
-            </div>
+            <div className="w-8 h-8" />
           </header>
 
           <main className="p-3 space-y-3 w-full">
@@ -146,26 +295,40 @@ export default function AnalysisPage() {
               style={{ color: "#79665A" }}
             >
               <ChevronLeft
-                className="w-4 h-4 cursor-pointer"
+                onClick={handlePrevMonth}
+                className="w-4 h-4 cursor-pointer hover:opacity-70 transition"
                 style={{ color: "#A99A8E" }}
               />
               <div
-                className="flex items-center gap-1 bg-white px-3 py-1 rounded-full shadow-xs"
+                className="relative flex items-center gap-1 bg-white px-3 py-1 rounded-full shadow-xs cursor-pointer"
                 style={{ border: "1px solid #EAE3DD" }}
               >
-                <span>2026年 10月</span>
+                <span>
+                  {displayYear}年 {Number(displayMonth)}月
+                </span>
                 <ChevronDown
                   className="w-3.5 h-3.5"
                   style={{ color: "#A99A8E" }}
                 />
+                <select
+                  value={selectedYearMonth}
+                  onChange={(e) => setSelectedYearMonth(e.target.value)}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                >
+                  {monthOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
               </div>
               <ChevronRight
-                className="w-4 h-4 cursor-pointer"
+                onClick={handleNextMonth}
+                className="w-4 h-4 cursor-pointer hover:opacity-70 transition"
                 style={{ color: "#A99A8E" }}
               />
             </div>
 
-            {/* 今月の支出の内訳 */}
             <div
               className="p-3.5 rounded-2xl bg-white shadow-sm space-y-3 w-full"
               style={{ border: "1px solid #EAE3DD" }}
@@ -195,6 +358,7 @@ export default function AnalysisPage() {
                     className="w-full h-full transform -rotate-90"
                   >
                     {pieSlices.map((slice, idx) => {
+                      if (slice.percent === 0) return null;
                       const x1 =
                         50 + 40 * Math.cos((Math.PI * slice.startAngle) / 180);
                       const y1 =
@@ -224,22 +388,21 @@ export default function AnalysisPage() {
                   </div>
                 </div>
 
-                <div className="flex-1 space-y-1.5">
+                <div className="flex-1 space-y-1.5 max-h-40 overflow-y-auto">
                   {breakdownData.map((item, idx) => {
-                    const IconComponent = item.icon;
                     return (
                       <div
                         key={idx}
                         className="p-1.5 rounded-xl flex items-center justify-between text-[11px]"
                         style={{
-                          backgroundColor: item.bg,
+                          backgroundColor: "#FFFCF9",
                           border: "1px solid #EAE3DD",
                         }}
                       >
                         <div className="flex items-center gap-1.5">
-                          <IconComponent
-                            className="w-3.5 h-3.5"
-                            style={{ color: item.color }}
+                          <span
+                            className="w-3 h-3 rounded-full inline-block flex-shrink-0"
+                            style={{ backgroundColor: item.color }}
                           />
                           <span
                             className="font-semibold"
@@ -269,7 +432,6 @@ export default function AnalysisPage() {
               </div>
             </div>
 
-            {/* 月ごとの支出の推移 */}
             <div
               className="p-3.5 rounded-2xl bg-white shadow-sm space-y-3 w-full"
               style={{ border: "1px solid #EAE3DD" }}
@@ -281,37 +443,6 @@ export default function AnalysisPage() {
                 >
                   📅 <span>月ごとの支出の推移</span>
                 </h2>
-
-                <div className="bg-gray-100 p-0.5 rounded-full flex text-[10px] font-bold">
-                  <button
-                    onClick={() => setToggleMode("expense")}
-                    className={`px-2.5 py-0.5 rounded-full transition-all ${
-                      toggleMode === "expense"
-                        ? "text-white shadow-xs"
-                        : "text-[#A99A8E]"
-                    }`}
-                    style={{
-                      backgroundColor:
-                        toggleMode === "expense" ? "#F28FA4" : "transparent",
-                    }}
-                  >
-                    支出
-                  </button>
-                  <button
-                    onClick={() => setToggleMode("category")}
-                    className={`px-2.5 py-0.5 rounded-full transition-all ${
-                      toggleMode === "category"
-                        ? "text-white shadow-xs"
-                        : "text-[#A99A8E]"
-                    }`}
-                    style={{
-                      backgroundColor:
-                        toggleMode === "category" ? "#F28FA4" : "transparent",
-                    }}
-                  >
-                    カテゴリ別
-                  </button>
-                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -330,36 +461,26 @@ export default function AnalysisPage() {
                           className="block text-[8px]"
                           style={{ color: "#A99A8E" }}
                         >
-                          (今月)
+                          (選択中)
                         </span>
                       )}
                     </div>
 
                     <div className="flex-1 mx-2 h-2.5 bg-gray-100 rounded-full overflow-hidden flex">
-                      <div
-                        className="h-full"
-                        style={{ width: "20%", backgroundColor: "#C9BFB7" }}
-                      ></div>
-                      <div
-                        className="h-full"
-                        style={{ width: "22%", backgroundColor: "#78B4E2" }}
-                      ></div>
-                      <div
-                        className="h-full"
-                        style={{ width: "17%", backgroundColor: "#F28FA4" }}
-                      ></div>
-                      <div
-                        className="h-full"
-                        style={{ width: "18%", backgroundColor: "#A6CBAA" }}
-                      ></div>
-                      <div
-                        className="h-full"
-                        style={{ width: "15%", backgroundColor: "#F5C36B" }}
-                      ></div>
-                      <div
-                        className="h-full"
-                        style={{ width: "12%", backgroundColor: "#B6A4E2" }}
-                      ></div>
+                      {item.items.map((sub, sIdx) => {
+                        if (sub.amount <= 0 || item.total === 0) return null;
+                        const widthRatio = (sub.amount / item.total) * 100;
+                        return (
+                          <div
+                            key={sIdx}
+                            className="h-full"
+                            style={{
+                              width: `${widthRatio}%`,
+                              backgroundColor: sub.color,
+                            }}
+                          />
+                        );
+                      })}
                     </div>
 
                     <div
@@ -367,10 +488,6 @@ export default function AnalysisPage() {
                       style={{ color: "#79665A" }}
                     >
                       <span>¥ {item.total.toLocaleString()}</span>
-                      <ChevronRight
-                        className="w-3.5 h-3.5"
-                        style={{ color: "#A99A8E" }}
-                      />
                     </div>
                   </div>
                 ))}

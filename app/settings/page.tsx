@@ -25,7 +25,13 @@ import {
 } from "lucide-react";
 import BottomNav from "@/src/components/BottomNav";
 
-type SettingsView = "menu" | "basic" | "payment" | "category";
+type SettingsView =
+  | "menu"
+  | "basic_menu"
+  | "budget"
+  | "profile"
+  | "payment"
+  | "category";
 
 interface FixedExpense {
   id: string;
@@ -42,42 +48,48 @@ interface CategoryItem {
   id: string;
   name: string;
   color: string;
+  isSystem?: boolean;
 }
 
 const PRESET_COLORS = [
-  "#F28FA4",
-  "#78B4E2",
-  "#A6CBAA",
-  "#F5C36B",
-  "#B6A4E2",
-  "#C9BFB7",
-  "#F6C878",
-  "#E6A1C4",
-  "#93D5E1",
-  "#D7C49E",
+  "#F2A6B9", // コーラルピンク
+  "#E8C170", // クリームイエロー
+  "#A6CBAA", // ミントグリーン
+  "#78B4E2", // スカイブルー
+  "#B6A4E2", // ラベンダー
+  "#F2C299", // アプリコット
+  "#93D5E1", // アクアミント
+  "#E6A1C4", // ローズピンク
+  "#D7C49E", // サンドベージュ
+  "#C9BFB7", // グレージュ
 ];
 
 export default function SettingsPage() {
   const [currentView, setCurrentView] = useState<SettingsView>("menu");
 
-  // --- 基本設定 ---
-  const [weeklyBudget, setWeeklyBudget] = useState(30000);
-  const [foodTarget, setFoodTarget] = useState(20000);
-  const [dailyTarget, setDailyTarget] = useState(10000);
   const [husbandName, setHusbandName] = useState("夫");
   const [wifeName, setWifeName] = useState("妻");
 
-  const handleFoodTargetChange = (val: number) => {
-    setFoodTarget(val);
-    setWeeklyBudget(val + dailyTarget);
-  };
+  const [weeklyBudget, setWeeklyBudget] = useState(30000);
+  const [categoryBudgets, setCategoryBudgets] = useState<{
+    [key: string]: number;
+  }>({
+    食費: 20000,
+    日用品費: 10000,
+  });
 
-  const handleDailyTargetChange = (val: number) => {
-    setDailyTarget(val);
-    setWeeklyBudget(foodTarget + val);
-  };
+  const [commonColor, setCommonColor] = useState("#C9BFB7");
+  const [husbandColor, setHusbandColor] = useState("#78B4E2");
+  const [wifeColor, setWifeColor] = useState("#F28FA4");
 
-  // --- 引き落とし項目 & 絞り込みフィルター ---
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(
+    null,
+  );
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatColor, setNewCatColor] = useState(PRESET_COLORS[0]);
+
   const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>([]);
   const [filterType, setFilterType] = useState<
     "all" | "fixed" | "variable" | "husband" | "wife" | "common"
@@ -93,28 +105,59 @@ export default function SettingsPage() {
   const [expType, setExpType] = useState<"fixed" | "variable">("fixed");
   const [expConfirmDay, setExpConfirmDay] = useState("20");
 
-  // --- カテゴリ ---
-  const [categories, setCategories] = useState<CategoryItem[]>([
-    { id: "1", name: "食費", color: "#A6CBAA" },
-    { id: "2", name: "日用品費", color: "#F5C36B" },
-    { id: "3", name: "その他", color: "#B6A4E2" },
-  ]);
-  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
-  const [newCatName, setNewCatName] = useState("");
-  const [newCatColor, setNewCatColor] = useState(PRESET_COLORS[0]);
+  const getFullCategories = (customCats: CategoryItem[]) => {
+    const systemCats: CategoryItem[] = [
+      { id: "sys-common", name: "共通", color: commonColor, isSystem: true },
+      {
+        id: "sys-husband",
+        name: husbandName,
+        color: husbandColor,
+        isSystem: true,
+      },
+      { id: "sys-wife", name: wifeName, color: wifeColor, isSystem: true },
+    ];
+    const filteredCustom = customCats.filter(
+      (c) =>
+        !c.isSystem &&
+        c.name !== "共通" &&
+        c.name !== "夫" &&
+        c.name !== "妻" &&
+        c.name !== husbandName &&
+        c.name !== wifeName,
+    );
+    return [...systemCats, ...filteredCustom];
+  };
+
+  const fullCategories = getFullCategories(categories);
 
   useEffect(() => {
-    // 1. ローカルから即時復元
     const localConfig = localStorage.getItem("app_config");
     if (localConfig) {
       try {
         const parsed = JSON.parse(localConfig);
-        if (parsed.foodTarget) setFoodTarget(parsed.foodTarget);
-        if (parsed.dailyTarget) setDailyTarget(parsed.dailyTarget);
         if (parsed.weeklyBudget) setWeeklyBudget(parsed.weeklyBudget);
+        if (parsed.categoryBudgets) setCategoryBudgets(parsed.categoryBudgets);
         if (parsed.husbandName) setHusbandName(parsed.husbandName);
         if (parsed.wifeName) setWifeName(parsed.wifeName);
+        if (parsed.commonColor) setCommonColor(parsed.commonColor);
+        if (parsed.husbandColor) setHusbandColor(parsed.husbandColor);
+        if (parsed.wifeColor) setWifeColor(parsed.wifeColor);
+        if (parsed.categories) {
+          setCategories(parsed.categories);
+        } else {
+          setCategories([
+            { id: "1", name: "食費", color: "#A6CBAA" },
+            { id: "2", name: "日用品費", color: "#E8C170" },
+            { id: "3", name: "その他", color: "#B6A4E2" },
+          ]);
+        }
       } catch (e) {}
+    } else {
+      setCategories([
+        { id: "1", name: "食費", color: "#A6CBAA" },
+        { id: "2", name: "日用品費", color: "#E8C170" },
+        { id: "3", name: "その他", color: "#B6A4E2" },
+      ]);
     }
 
     const localExpenses = localStorage.getItem("app_expenses");
@@ -124,7 +167,6 @@ export default function SettingsPage() {
       } catch (e) {}
     }
 
-    // 2. バックグラウンド読み込み
     const initData = async () => {
       try {
         if (db) {
@@ -132,11 +174,14 @@ export default function SettingsPage() {
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
             const data = docSnap.data();
-            if (data.foodTarget) setFoodTarget(data.foodTarget);
-            if (data.dailyTarget) setDailyTarget(data.dailyTarget);
             if (data.weeklyBudget) setWeeklyBudget(data.weeklyBudget);
+            if (data.categoryBudgets) setCategoryBudgets(data.categoryBudgets);
             if (data.husbandName) setHusbandName(data.husbandName);
             if (data.wifeName) setWifeName(data.wifeName);
+            if (data.commonColor) setCommonColor(data.commonColor);
+            if (data.husbandColor) setHusbandColor(data.husbandColor);
+            if (data.wifeColor) setWifeColor(data.wifeColor);
+            if (data.categories) setCategories(data.categories);
           }
 
           const querySnapshot = await getDocs(collection(db, "expenses"));
@@ -157,20 +202,19 @@ export default function SettingsPage() {
     initData();
   }, []);
 
-  const handleSaveBasicConfig = (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const saveConfigToStorageAndDb = (newProps: any = {}) => {
     const configData = {
       weeklyBudget: Number(weeklyBudget),
-      foodTarget: Number(foodTarget),
-      dailyTarget: Number(dailyTarget),
+      categoryBudgets,
+      categories,
       husbandName,
       wifeName,
+      commonColor,
+      husbandColor,
+      wifeColor,
+      ...newProps,
     };
-
     localStorage.setItem("app_config", JSON.stringify(configData));
-    setCurrentView("menu");
-
     if (db) {
       setDoc(doc(db, "settings", "config"), configData, { merge: true }).catch(
         () => {},
@@ -178,13 +222,81 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSaveBudgetConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    saveConfigToStorageAndDb();
+    setCurrentView("basic_menu");
+  };
+
+  const handleSaveProfileConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    saveConfigToStorageAndDb();
+    setCurrentView("basic_menu");
+  };
+
+  const handleSaveCategory = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (
+      !newCatName &&
+      (!editingCategoryId || !editingCategoryId.startsWith("sys-"))
+    )
+      return;
+
+    let updatedCategories = [...categories];
+    let newCommonColor = commonColor;
+    let newHusbandColor = husbandColor;
+    let newWifeColor = wifeColor;
+
+    if (editingCategoryId && editingCategoryId.startsWith("sys-")) {
+      if (editingCategoryId === "sys-common") newCommonColor = newCatColor;
+      if (editingCategoryId === "sys-husband") newHusbandColor = newCatColor;
+      if (editingCategoryId === "sys-wife") newWifeColor = newCatColor;
+
+      setCommonColor(newCommonColor);
+      setHusbandColor(newHusbandColor);
+      setWifeColor(newWifeColor);
+    } else {
+      if (editingCategoryId) {
+        updatedCategories = categories.map((cat) =>
+          cat.id === editingCategoryId
+            ? { ...cat, name: newCatName, color: newCatColor }
+            : cat,
+        );
+      } else {
+        updatedCategories.push({
+          id: Date.now().toString(),
+          name: newCatName,
+          color: newCatColor,
+        });
+      }
+      setCategories(updatedCategories);
+    }
+
+    saveConfigToStorageAndDb({
+      categories: updatedCategories,
+      commonColor: newCommonColor,
+      husbandColor: newHusbandColor,
+      wifeColor: newWifeColor,
+    });
+
+    setNewCatName("");
+    setEditingCategoryId(null);
+    setIsCategoryModalOpen(false);
+  };
+
+  const handleDeleteCategory = (id: string) => {
+    if (!confirm("本当にこのカテゴリを削除しますか？")) return;
+    const updatedCategories = categories.filter((cat) => cat.id !== id);
+    setCategories(updatedCategories);
+    saveConfigToStorageAndDb({ categories: updatedCategories });
+  };
+
   const handleSaveExpense = (e: React.FormEvent) => {
     e.preventDefault();
-
     const tempId = editingExpenseId || Date.now().toString();
     const expenseData = {
       title: expTitle,
-      amount: Number(expAmount),
+      amount: expType === "variable" ? 0 : Number(expAmount) || 0,
       dueDay: Number(expDueDay),
       ownership: expOwnership,
       expenseType: expType,
@@ -193,7 +305,6 @@ export default function SettingsPage() {
     };
 
     const newItem: FixedExpense = { id: tempId, ...expenseData };
-
     let updatedList: FixedExpense[] = [];
     if (editingExpenseId) {
       updatedList = fixedExpenses.map((item) =>
@@ -232,7 +343,6 @@ export default function SettingsPage() {
 
   const handleDeleteExpense = (id: string) => {
     if (!confirm("本当に削除しますか？")) return;
-
     const updated = fixedExpenses.filter((item) => item.id !== id);
     setFixedExpenses(updated);
     localStorage.setItem("app_expenses", JSON.stringify(updated));
@@ -240,17 +350,6 @@ export default function SettingsPage() {
     if (db) {
       deleteDoc(doc(db, "expenses", id)).catch(() => {});
     }
-  };
-
-  const handleAddCategory = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCatName) return;
-    setCategories([
-      ...categories,
-      { id: Date.now().toString(), name: newCatName, color: newCatColor },
-    ]);
-    setNewCatName("");
-    setIsCategoryModalOpen(false);
   };
 
   const filteredExpenses = fixedExpenses.filter((item) => {
@@ -275,8 +374,14 @@ export default function SettingsPage() {
           >
             {currentView !== "menu" ? (
               <button
-                onClick={() => setCurrentView("menu")}
-                className="p-1 flex items-center gap-1 font-bold"
+                onClick={() => {
+                  if (currentView === "budget" || currentView === "profile") {
+                    setCurrentView("basic_menu");
+                  } else {
+                    setCurrentView("menu");
+                  }
+                }}
+                className="p-1 flex items-center gap-1 font-bold cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4" style={{ color: "#79665A" }} />
                 <span>戻る</span>
@@ -296,8 +401,8 @@ export default function SettingsPage() {
             {currentView === "menu" && (
               <>
                 <button
-                  onClick={() => setCurrentView("basic")}
-                  className="w-full p-3.5 rounded-2xl bg-white shadow-sm flex items-center justify-between text-left hover:bg-gray-50 transition"
+                  onClick={() => setCurrentView("basic_menu")}
+                  className="w-full p-3.5 rounded-2xl bg-white shadow-sm flex items-center justify-between text-left hover:bg-gray-50 transition cursor-pointer"
                   style={{ border: "1px solid #EAE3DD" }}
                 >
                   <div className="flex items-center gap-3">
@@ -322,7 +427,7 @@ export default function SettingsPage() {
 
                 <button
                   onClick={() => setCurrentView("payment")}
-                  className="w-full p-3.5 rounded-2xl bg-white shadow-sm flex items-center justify-between text-left hover:bg-gray-50 transition"
+                  className="w-full p-3.5 rounded-2xl bg-white shadow-sm flex items-center justify-between text-left hover:bg-gray-50 transition cursor-pointer"
                   style={{ border: "1px solid #EAE3DD" }}
                 >
                   <div className="flex items-center gap-3">
@@ -347,7 +452,7 @@ export default function SettingsPage() {
 
                 <button
                   onClick={() => setCurrentView("category")}
-                  className="w-full p-3.5 rounded-2xl bg-white shadow-sm flex items-center justify-between text-left hover:bg-gray-50 transition"
+                  className="w-full p-3.5 rounded-2xl bg-white shadow-sm flex items-center justify-between text-left hover:bg-gray-50 transition cursor-pointer"
                   style={{ border: "1px solid #EAE3DD" }}
                 >
                   <div className="flex items-center gap-3">
@@ -372,15 +477,115 @@ export default function SettingsPage() {
               </>
             )}
 
-            {/* 基本設定フォーム */}
-            {currentView === "basic" && (
+            {currentView === "basic_menu" && (
+              <div className="space-y-2.5">
+                <button
+                  onClick={() => setCurrentView("profile")}
+                  className="w-full p-3.5 rounded-2xl bg-white shadow-sm flex items-center justify-between text-left hover:bg-gray-50 transition cursor-pointer"
+                  style={{ border: "1px solid #EAE3DD" }}
+                >
+                  <span
+                    className="font-bold text-sm"
+                    style={{ color: "#79665A" }}
+                  >
+                    プロフィールの変更
+                  </span>
+                  <ChevronRight
+                    className="w-4 h-4"
+                    style={{ color: "#A99A8E" }}
+                  />
+                </button>
+
+                <button
+                  onClick={() => setCurrentView("budget")}
+                  className="w-full p-3.5 rounded-2xl bg-white shadow-sm flex items-center justify-between text-left hover:bg-gray-50 transition cursor-pointer"
+                  style={{ border: "1px solid #EAE3DD" }}
+                >
+                  <span
+                    className="font-bold text-sm"
+                    style={{ color: "#79665A" }}
+                  >
+                    予算の目安設定
+                  </span>
+                  <ChevronRight
+                    className="w-4 h-4"
+                    style={{ color: "#A99A8E" }}
+                  />
+                </button>
+              </div>
+            )}
+
+            {currentView === "budget" && (
               <form
-                onSubmit={handleSaveBasicConfig}
+                onSubmit={handleSaveBudgetConfig}
                 className="p-4 rounded-2xl bg-white shadow-sm space-y-4"
                 style={{ border: "1px solid #EAE3DD" }}
               >
                 <h3 className="font-bold text-xs" style={{ color: "#79665A" }}>
-                  予算目安の設定
+                  カテゴリ別予算目安の設定
+                </h3>
+
+                <div className="space-y-3">
+                  {fullCategories.map((cat) => (
+                    <div key={cat.id}>
+                      <label
+                        className="block text-[11px] font-semibold mb-1 flex items-center gap-1.5"
+                        style={{ color: "#79665A" }}
+                      >
+                        <span
+                          className="w-3 h-3 rounded-full inline-block"
+                          style={{ backgroundColor: cat.color }}
+                        />
+                        <span>{cat.name}の週目安 (円)</span>
+                      </label>
+                      <input
+                        type="number"
+                        value={
+                          categoryBudgets[cat.name] !== undefined
+                            ? categoryBudgets[cat.name]
+                            : 0
+                        }
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          const updated = {
+                            ...categoryBudgets,
+                            [cat.name]: val,
+                          };
+                          setCategoryBudgets(updated);
+                          const total = Object.values(updated).reduce(
+                            (sum, b) => sum + (Number(b) || 0),
+                            0,
+                          );
+                          setWeeklyBudget(total);
+                        }}
+                        className="w-full rounded-xl p-2.5 text-xs outline-none bg-white"
+                        style={{
+                          border: "1px solid #EAE3DD",
+                          color: "#79665A",
+                        }}
+                      />
+                    </div>
+                  ))}
+
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 rounded-xl font-bold text-white shadow-md mt-2 transition active:scale-98 cursor-pointer"
+                    style={{ backgroundColor: "#F28FA4" }}
+                  >
+                    保存する
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {currentView === "profile" && (
+              <form
+                onSubmit={handleSaveProfileConfig}
+                className="p-4 rounded-2xl bg-white shadow-sm space-y-4"
+                style={{ border: "1px solid #EAE3DD" }}
+              >
+                <h3 className="font-bold text-xs" style={{ color: "#79665A" }}>
+                  プロフィールの変更
                 </h3>
 
                 <div className="space-y-3">
@@ -389,99 +594,32 @@ export default function SettingsPage() {
                       className="block text-[11px] font-semibold mb-1"
                       style={{ color: "#A99A8E" }}
                     >
-                      食費の週目安 (円)
+                      夫の表示名
                     </label>
                     <input
-                      type="number"
-                      value={foodTarget}
-                      onChange={(e) =>
-                        handleFoodTargetChange(Number(e.target.value))
-                      }
+                      type="text"
+                      value={husbandName}
+                      onChange={(e) => setHusbandName(e.target.value)}
                       className="w-full rounded-xl p-2.5 text-xs outline-none bg-white"
                       style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                      required
                     />
                   </div>
-
                   <div>
                     <label
                       className="block text-[11px] font-semibold mb-1"
                       style={{ color: "#A99A8E" }}
                     >
-                      日用品費の週目安 (円)
+                      妻の表示名
                     </label>
                     <input
-                      type="number"
-                      value={dailyTarget}
-                      onChange={(e) =>
-                        handleDailyTargetChange(Number(e.target.value))
-                      }
+                      type="text"
+                      value={wifeName}
+                      onChange={(e) => setWifeName(e.target.value)}
                       className="w-full rounded-xl p-2.5 text-xs outline-none bg-white"
                       style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                      required
                     />
-                  </div>
-
-                  <div>
-                    <label
-                      className="block text-[11px] font-semibold mb-1"
-                      style={{ color: "#A99A8E" }}
-                    >
-                      週予算 (自動合算)
-                    </label>
-                    <input
-                      type="number"
-                      value={weeklyBudget}
-                      readOnly
-                      className="w-full rounded-xl p-2.5 text-xs outline-none bg-gray-100 font-bold"
-                      style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
-                    />
-                  </div>
-
-                  <hr style={{ borderColor: "#EAE3DD" }} />
-
-                  <h3
-                    className="font-bold text-xs pt-1"
-                    style={{ color: "#79665A" }}
-                  >
-                    プロフィールの変更
-                  </h3>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label
-                        className="block text-[11px] font-semibold mb-1"
-                        style={{ color: "#A99A8E" }}
-                      >
-                        夫の表示名
-                      </label>
-                      <input
-                        type="text"
-                        value={husbandName}
-                        onChange={(e) => setHusbandName(e.target.value)}
-                        className="w-full rounded-xl p-2 text-xs outline-none bg-white"
-                        style={{
-                          border: "1px solid #EAE3DD",
-                          color: "#79665A",
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label
-                        className="block text-[11px] font-semibold mb-1"
-                        style={{ color: "#A99A8E" }}
-                      >
-                        妻の表示名
-                      </label>
-                      <input
-                        type="text"
-                        value={wifeName}
-                        onChange={(e) => setWifeName(e.target.value)}
-                        className="w-full rounded-xl p-2 text-xs outline-none bg-white"
-                        style={{
-                          border: "1px solid #EAE3DD",
-                          color: "#79665A",
-                        }}
-                      />
-                    </div>
                   </div>
 
                   <button
@@ -489,13 +627,12 @@ export default function SettingsPage() {
                     className="w-full py-2.5 rounded-xl font-bold text-white shadow-md mt-2 transition active:scale-98 cursor-pointer"
                     style={{ backgroundColor: "#F28FA4" }}
                   >
-                    設定を保存する
+                    保存する
                   </button>
                 </div>
               </form>
             )}
 
-            {/* 引き落とし設定 */}
             {currentView === "payment" && (
               <div className="space-y-3">
                 <div className="flex justify-between items-center px-1">
@@ -602,12 +739,14 @@ export default function SettingsPage() {
                         </div>
 
                         <div className="flex items-center gap-3">
-                          <span
-                            className="font-extrabold text-sm"
-                            style={{ color: "#79665A" }}
-                          >
-                            ¥ {item.amount.toLocaleString()}
-                          </span>
+                          {item.expenseType !== "variable" && (
+                            <span
+                              className="font-extrabold text-sm"
+                              style={{ color: "#79665A" }}
+                            >
+                              ¥ {item.amount.toLocaleString()}
+                            </span>
+                          )}
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => {
@@ -642,7 +781,6 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* カテゴリ設定 */}
             {currentView === "category" && (
               <div
                 className="p-4 rounded-2xl bg-white shadow-sm space-y-3"
@@ -656,7 +794,12 @@ export default function SettingsPage() {
                     カテゴリ一覧とカラー
                   </h3>
                   <button
-                    onClick={() => setIsCategoryModalOpen(true)}
+                    onClick={() => {
+                      setEditingCategoryId(null);
+                      setNewCatName("");
+                      setNewCatColor(PRESET_COLORS[0]);
+                      setIsCategoryModalOpen(true);
+                    }}
                     className="flex items-center gap-1 text-white px-3 py-1.5 rounded-xl font-bold shadow-xs cursor-pointer"
                     style={{ backgroundColor: "#F28FA4" }}
                   >
@@ -666,7 +809,7 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  {categories.map((cat) => (
+                  {fullCategories.map((cat) => (
                     <div
                       key={cat.id}
                       className="p-2.5 rounded-xl flex items-center justify-between"
@@ -684,8 +827,50 @@ export default function SettingsPage() {
                           className="font-bold text-xs"
                           style={{ color: "#79665A" }}
                         >
-                          {cat.name}
+                          {cat.isSystem && cat.id === "sys-husband"
+                            ? husbandName
+                            : cat.isSystem && cat.id === "sys-wife"
+                              ? wifeName
+                              : cat.name}
                         </span>
+                        {cat.isSystem && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-semibold">
+                            固定
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => {
+                            setEditingCategoryId(cat.id);
+                            setNewCatName(
+                              cat.isSystem && cat.id === "sys-husband"
+                                ? husbandName
+                                : cat.isSystem && cat.id === "sys-wife"
+                                  ? wifeName
+                                  : cat.name,
+                            );
+                            setNewCatColor(cat.color);
+                            setIsCategoryModalOpen(true);
+                          }}
+                          className="p-1 rounded-lg hover:bg-gray-100 cursor-pointer"
+                          title="カラー変更"
+                        >
+                          <Edit2
+                            className="w-3.5 h-3.5"
+                            style={{ color: "#A99A8E" }}
+                          />
+                        </button>
+                        {!cat.isSystem && (
+                          <button
+                            onClick={() => handleDeleteCategory(cat.id)}
+                            className="p-1 rounded-lg hover:bg-gray-100 cursor-pointer"
+                            title="削除"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -698,7 +883,6 @@ export default function SettingsPage() {
         <BottomNav />
       </div>
 
-      {/* モーダル類 */}
       {isExpenseModalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div
@@ -763,24 +947,28 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label
-                    className="block text-[11px] font-semibold mb-1"
-                    style={{ color: "#A99A8E" }}
-                  >
-                    金額 (円)
-                  </label>
-                  <input
-                    type="number"
-                    value={expAmount}
-                    onChange={(e) => setExpAmount(e.target.value)}
-                    className="w-full rounded-xl p-2 text-xs outline-none bg-white"
-                    style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
-                    placeholder="10000"
-                    required
-                  />
-                </div>
+              <div
+                className={`grid ${expType === "variable" ? "grid-cols-1" : "grid-cols-2"} gap-2`}
+              >
+                {expType !== "variable" && (
+                  <div>
+                    <label
+                      className="block text-[11px] font-semibold mb-1"
+                      style={{ color: "#A99A8E" }}
+                    >
+                      金額 (円)
+                    </label>
+                    <input
+                      type="number"
+                      value={expAmount}
+                      onChange={(e) => setExpAmount(e.target.value)}
+                      className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                      style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                      placeholder="10000"
+                      required
+                    />
+                  </div>
+                )}
                 <div>
                   <label
                     className="block text-[11px] font-semibold mb-1"
@@ -831,17 +1019,13 @@ export default function SettingsPage() {
                 </label>
                 <select
                   value={expOwnership}
-                  onChange={(e) =>
-                    setExpOwnership(
-                      e.target.value as "common" | "husband" | "wife",
-                    )
-                  }
+                  onChange={(e) => setExpOwnership(e.target.value as any)}
                   className="w-full rounded-xl p-2 text-xs outline-none bg-white"
                   style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                 >
-                  <option value="common">夫婦共通</option>
-                  <option value="husband">{husbandName}・個人</option>
-                  <option value="wife">{wifeName}・個人</option>
+                  <option value="common">共通</option>
+                  <option value="husband">{husbandName}</option>
+                  <option value="wife">{wifeName}</option>
                 </select>
               </div>
 
@@ -877,26 +1061,42 @@ export default function SettingsPage() {
               className="font-bold text-sm text-center"
               style={{ color: "#79665A" }}
             >
-              カテゴリの追加
+              {editingCategoryId && editingCategoryId.startsWith("sys-")
+                ? "カテゴリカラーの変更"
+                : editingCategoryId
+                  ? "カテゴリの編集"
+                  : "カテゴリの追加"}
             </h3>
-            <form onSubmit={handleAddCategory} className="space-y-3">
-              <div>
-                <label
-                  className="block text-[11px] font-semibold mb-1"
-                  style={{ color: "#A99A8E" }}
+            <form onSubmit={handleSaveCategory} className="space-y-3">
+              {(!editingCategoryId ||
+                !editingCategoryId.startsWith("sys-")) && (
+                <div>
+                  <label
+                    className="block text-[11px] font-semibold mb-1"
+                    style={{ color: "#A99A8E" }}
+                  >
+                    カテゴリ名
+                  </label>
+                  <input
+                    type="text"
+                    value={newCatName}
+                    onChange={(e) => setNewCatName(e.target.value)}
+                    className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                    style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                    placeholder="例: 娯楽費、医療費"
+                    required
+                  />
+                </div>
+              )}
+
+              {editingCategoryId && editingCategoryId.startsWith("sys-") && (
+                <div
+                  className="text-center font-bold text-xs"
+                  style={{ color: "#79665A" }}
                 >
-                  カテゴリ名
-                </label>
-                <input
-                  type="text"
-                  value={newCatName}
-                  onChange={(e) => setNewCatName(e.target.value)}
-                  className="w-full rounded-xl p-2 text-xs outline-none bg-white"
-                  style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
-                  placeholder="例: 娯楽費、医療費"
-                  required
-                />
-              </div>
+                  {newCatName} のカラー変更
+                </div>
+              )}
 
               <div>
                 <label
@@ -932,7 +1132,7 @@ export default function SettingsPage() {
                   className="flex-1 text-white p-2 rounded-xl font-semibold text-xs shadow-md cursor-pointer"
                   style={{ backgroundColor: "#F28FA4" }}
                 >
-                  追加する
+                  保存する
                 </button>
               </div>
             </form>
