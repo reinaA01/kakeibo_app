@@ -130,13 +130,41 @@ export default function SettingsPage() {
 
   const fullCategories = getFullCategories(categories);
 
+  // ★ 予算設定画面には「共通」「夫」「妻」を含めず、純粋なカスタムカテゴリのみを対象にする
+  const customCategoriesOnly = categories.filter(
+    (c) =>
+      !c.isSystem &&
+      c.name !== "共通" &&
+      c.name !== "夫" &&
+      c.name !== "妻" &&
+      c.name !== husbandName &&
+      c.name !== wifeName,
+  );
+
   useEffect(() => {
     const localConfig = localStorage.getItem("app_config");
     if (localConfig) {
       try {
         const parsed = JSON.parse(localConfig);
         if (parsed.weeklyBudget) setWeeklyBudget(parsed.weeklyBudget);
-        if (parsed.categoryBudgets) setCategoryBudgets(parsed.categoryBudgets);
+        if (parsed.categoryBudgets) {
+          const validCustomNames = (parsed.categories || [])
+            .filter(
+              (c: CategoryItem) =>
+                !c.isSystem &&
+                c.name !== "共通" &&
+                c.name !== "夫" &&
+                c.name !== "妻",
+            )
+            .map((c: CategoryItem) => c.name);
+          const cleanedBudgets: { [key: string]: number } = {};
+          validCustomNames.forEach((name: string) => {
+            if (parsed.categoryBudgets[name] !== undefined) {
+              cleanedBudgets[name] = parsed.categoryBudgets[name];
+            }
+          });
+          setCategoryBudgets(cleanedBudgets);
+        }
         if (parsed.husbandName) setHusbandName(parsed.husbandName);
         if (parsed.wifeName) setWifeName(parsed.wifeName);
         if (parsed.commonColor) setCommonColor(parsed.commonColor);
@@ -175,7 +203,24 @@ export default function SettingsPage() {
           if (docSnap.exists()) {
             const data = docSnap.data();
             if (data.weeklyBudget) setWeeklyBudget(data.weeklyBudget);
-            if (data.categoryBudgets) setCategoryBudgets(data.categoryBudgets);
+            if (data.categoryBudgets) {
+              const validCustomNames = (data.categories || [])
+                .filter(
+                  (c: CategoryItem) =>
+                    !c.isSystem &&
+                    c.name !== "共通" &&
+                    c.name !== "夫" &&
+                    c.name !== "妻",
+                )
+                .map((c: CategoryItem) => c.name);
+              const cleanedBudgets: { [key: string]: number } = {};
+              validCustomNames.forEach((name: string) => {
+                if (data.categoryBudgets[name] !== undefined) {
+                  cleanedBudgets[name] = data.categoryBudgets[name];
+                }
+              });
+              setCategoryBudgets(cleanedBudgets);
+            }
             if (data.husbandName) setHusbandName(data.husbandName);
             if (data.wifeName) setWifeName(data.wifeName);
             if (data.commonColor) setCommonColor(data.commonColor);
@@ -515,6 +560,7 @@ export default function SettingsPage() {
               </div>
             )}
 
+            {/* 予算の目安設定画面（カスタムカテゴリのみ表示） */}
             {currentView === "budget" && (
               <form
                 onSubmit={handleSaveBudgetConfig}
@@ -526,7 +572,7 @@ export default function SettingsPage() {
                 </h3>
 
                 <div className="space-y-3">
-                  {fullCategories.map((cat) => (
+                  {customCategoriesOnly.map((cat) => (
                     <div key={cat.id}>
                       <label
                         className="block text-[11px] font-semibold mb-1 flex items-center gap-1.5"

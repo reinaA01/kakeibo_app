@@ -88,7 +88,6 @@ export default function WeekPage() {
   const [husbandName, setHusbandName] = useState("夫");
   const [wifeName, setWifeName] = useState("妻");
 
-  // すべてのカテゴリ（システム + カスタム）
   const [categories, setCategories] = useState<CategoryItem[]>([
     { id: "1", name: "食費", color: "#A6CBAA" },
     { id: "2", name: "日用品費", color: "#E8C170" },
@@ -120,15 +119,15 @@ export default function WeekPage() {
 
   const fullCategories = getFullCategories(categories);
 
-  // ★「今週のカテゴリ合計」には、共通・夫・妻を除いたカスタムカテゴリのみを表示する
-  const customCategoriesOnly = fullCategories.filter(
-    (cat) =>
-      !cat.isSystem &&
-      cat.name !== "共通" &&
-      cat.name !== "夫" &&
-      cat.name !== "妻" &&
-      cat.name !== husbandName &&
-      cat.name !== wifeName,
+  // カスタムカテゴリのみを抽出
+  const customCategoriesOnly = categories.filter(
+    (c) =>
+      !c.isSystem &&
+      c.name !== "共通" &&
+      c.name !== "夫" &&
+      c.name !== "妻" &&
+      c.name !== husbandName &&
+      c.name !== wifeName,
   );
 
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
@@ -151,18 +150,44 @@ export default function WeekPage() {
   useEffect(() => {
     setCurrentDate(new Date());
 
+    const processConfigData = (parsed: any) => {
+      if (parsed.weeklyBudget) setWeeklyBudget(parsed.weeklyBudget);
+      if (parsed.categories) {
+        setCategories(parsed.categories);
+        // 有効なカスタムカテゴリ名のみで予算を再構築・同期
+        const validCustomNames = parsed.categories
+          .filter(
+            (c: CategoryItem) =>
+              !c.isSystem &&
+              c.name !== "共通" &&
+              c.name !== "夫" &&
+              c.name !== "妻" &&
+              c.name !== parsed.husbandName &&
+              c.name !== parsed.wifeName,
+          )
+          .map((c: CategoryItem) => c.name);
+
+        if (parsed.categoryBudgets) {
+          const cleanedBudgets: { [key: string]: number } = {};
+          validCustomNames.forEach((name: string) => {
+            if (parsed.categoryBudgets[name] !== undefined) {
+              cleanedBudgets[name] = parsed.categoryBudgets[name];
+            }
+          });
+          setCategoryBudgets(cleanedBudgets);
+        }
+      }
+      if (parsed.commonColor) setCommonColor(parsed.commonColor);
+      if (parsed.husbandColor) setHusbandColor(parsed.husbandColor);
+      if (parsed.wifeColor) setWifeColor(parsed.wifeColor);
+      if (parsed.husbandName) setHusbandName(parsed.husbandName);
+      if (parsed.wifeName) setWifeName(parsed.wifeName);
+    };
+
     const localConfig = localStorage.getItem("app_config");
     if (localConfig) {
       try {
-        const parsed = JSON.parse(localConfig);
-        if (parsed.weeklyBudget) setWeeklyBudget(parsed.weeklyBudget);
-        if (parsed.categoryBudgets) setCategoryBudgets(parsed.categoryBudgets);
-        if (parsed.categories) setCategories(parsed.categories);
-        if (parsed.commonColor) setCommonColor(parsed.commonColor);
-        if (parsed.husbandColor) setHusbandColor(parsed.husbandColor);
-        if (parsed.wifeColor) setWifeColor(parsed.wifeColor);
-        if (parsed.husbandName) setHusbandName(parsed.husbandName);
-        if (parsed.wifeName) setWifeName(parsed.wifeName);
+        processConfigData(JSON.parse(localConfig));
       } catch (e) {}
     }
 
@@ -172,15 +197,7 @@ export default function WeekPage() {
           const docRef = doc(db, "settings", "config");
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
-            const data = docSnap.data();
-            if (data.weeklyBudget) setWeeklyBudget(data.weeklyBudget);
-            if (data.categoryBudgets) setCategoryBudgets(data.categoryBudgets);
-            if (data.categories) setCategories(data.categories);
-            if (data.commonColor) setCommonColor(data.commonColor);
-            if (data.husbandColor) setHusbandColor(data.husbandColor);
-            if (data.wifeColor) setWifeColor(data.wifeColor);
-            if (data.husbandName) setHusbandName(data.husbandName);
-            if (data.wifeName) setWifeName(data.wifeName);
+            processConfigData(docSnap.data());
           }
 
           const q = collection(db, "weekly_records");
@@ -487,7 +504,7 @@ export default function WeekPage() {
               </div>
             </div>
 
-            {/* 今週のカテゴリ合計（共通・夫・妻を除外したカスタムカテゴリのみを表示） */}
+            {/* 今週のカテゴリ合計（カスタムカテゴリのみ表示） */}
             <div
               className="p-3.5 rounded-2xl bg-white shadow-sm space-y-2.5 w-full"
               style={{ border: "1px solid #EAE3DD" }}
