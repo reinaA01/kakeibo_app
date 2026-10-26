@@ -37,7 +37,7 @@ interface IncomeEntry {
   id: string;
   category: "給与" | "副業" | "給付金・手当" | "臨時収入" | "その他";
   amount: number;
-  day: number; // 収入の日付（1〜31日）
+  day: number;
   ownership: "husband" | "wife";
 }
 
@@ -50,7 +50,6 @@ const INCOME_CATEGORIES: IncomeEntry["category"][] = [
 ];
 
 export default function Home() {
-  // 表示中の年月状態（初期値: 2026年10月）
   const [currentYear, setCurrentYear] = useState(2026);
   const [currentMonth, setCurrentMonth] = useState(10);
 
@@ -64,7 +63,6 @@ export default function Home() {
     "common",
   );
 
-  // 表示名
   const [husbandName, setHusbandName] = useState("夫");
   const [wifeName, setWifeName] = useState("妻");
 
@@ -137,7 +135,7 @@ export default function Home() {
             localStorage.setItem("app_expenses", JSON.stringify(items));
           }
 
-          // 収入データをFirestoreから取得（キャッシュ削除対策）
+          // 収入データをFirestoreから取得
           const incSnapshot = await getDocs(collection(db, "incomes"));
           const incItems: IncomeEntry[] = [];
           incSnapshot.forEach((docItem) => {
@@ -153,7 +151,6 @@ export default function Home() {
     fetchData();
   }, []);
 
-  // 月を前後に動かすハンドラー
   const handlePrevMonth = () => {
     if (currentMonth === 1) {
       setCurrentYear(currentYear - 1);
@@ -200,7 +197,6 @@ export default function Home() {
     setIsModalOpen(false);
   };
 
-  // 個人（夫・妻）限定の引き落とし合計額
   const husbandTotal = expenses
     .filter((e) => e.ownership === "husband")
     .reduce((sum, item) => sum + item.amount, 0);
@@ -209,7 +205,6 @@ export default function Home() {
     .filter((e) => e.ownership === "wife")
     .reduce((sum, item) => sum + item.amount, 0);
 
-  // 収入モーダルを開く
   const handleOpenIncomeModal = (target: "husband" | "wife") => {
     setIncomeModalTarget(target);
     const initialList = incomes.filter((i) => i.ownership === target);
@@ -242,6 +237,7 @@ export default function Home() {
     ]);
   };
 
+  // 収入の行を削除（Firestoreからも削除）
   const handleRemoveIncomeRow = async (id: string) => {
     try {
       if (db && !id.startsWith("17")) {
@@ -284,6 +280,17 @@ export default function Home() {
           ...incomes.filter((i) => i.ownership !== incomeModalTarget),
         ];
 
+        // 削除された項目を特定してFirestoreから削除
+        const currentDbItems = incomes.filter(
+          (i) => i.ownership === incomeModalTarget,
+        );
+        const tempIds = tempIncomes.map((t) => t.id);
+        for (const dbItem of currentDbItems) {
+          if (!tempIds.includes(dbItem.id)) {
+            await deleteDoc(doc(db, "incomes", dbItem.id));
+          }
+        }
+
         for (const item of tempIncomes) {
           if (item.amount > 0) {
             const incomeData = {
@@ -293,12 +300,9 @@ export default function Home() {
               ownership: incomeModalTarget,
             };
 
-            // 既存または新規の判定してFirestoreに保存
             if (item.id.length > 15 && !item.id.includes("-")) {
-              // 既にFirestoreにある場合はそのまま保持
               savedIncomes.push(item);
             } else {
-              // 新規追加
               const docRef = await addDoc(
                 collection(db, "incomes"),
                 incomeData,
@@ -316,7 +320,6 @@ export default function Home() {
     setIncomeModalTarget(null);
   };
 
-  // 暦通りのカレンダー計算と営業日調整ロジック
   const getDaysInMonth = (year: number, month: number) =>
     new Date(year, month, 0).getDate();
   const getFirstDayOfMonth = (year: number, month: number) =>
@@ -325,7 +328,6 @@ export default function Home() {
   const totalDays = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
 
-  // 日付ごとの支出マップを作成
   const expensesByDate: { [key: string]: ExpenseItem[] } = {};
   expenses.forEach((item) => {
     if (item.expenseType === "variable" && (!item.amount || item.amount <= 0)) {
@@ -352,7 +354,6 @@ export default function Home() {
     expensesByDate[dateStr].push(item);
   });
 
-  // 日付ごとの収入マップを作成
   const incomesByDate: { [key: string]: IncomeEntry[] } = {};
   incomes.forEach((item) => {
     const formattedDay = String(item.day || 1).padStart(2, "0");
@@ -378,7 +379,6 @@ export default function Home() {
     >
       <div className="w-full max-w-lg mx-auto min-h-screen relative flex flex-col justify-between">
         <div>
-          {/* ヘッダー */}
           <header
             className="flex justify-between items-center px-4 h-14 bg-white/90 backdrop-blur sticky top-0 z-10 w-full"
             style={{ borderBottom: "1px solid #EAE3DD" }}
@@ -400,7 +400,6 @@ export default function Home() {
           </header>
 
           <main className="p-3 space-y-3 w-full">
-            {/* 年月ナビゲーション（＜ ＞で月変更） */}
             <div
               className="flex justify-center items-center gap-4 text-sm font-bold"
               style={{ color: "#79665A" }}
@@ -424,7 +423,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* 夫婦別支出サマリー（個人限定） */}
             <div className="grid grid-cols-2 gap-2.5 w-full">
               <div
                 className="p-3 rounded-xl shadow-sm text-center w-full"
@@ -483,7 +481,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* カレンダー */}
             <div
               className="p-3 rounded-2xl shadow-sm bg-white w-full"
               style={{ border: "1px solid #EAE3DD" }}
@@ -514,9 +511,7 @@ export default function Home() {
                 <span style={{ color: "#78B4E2" }}>土</span>
               </div>
 
-              {/* 暦通りのカレンダー生成 */}
               <div className="grid grid-cols-7 gap-1.5 w-full">
-                {/* 月初めの余白セル */}
                 {Array.from({ length: firstDay }).map((_, index) => (
                   <div
                     key={`empty-${index}`}
@@ -524,7 +519,6 @@ export default function Home() {
                   ></div>
                 ))}
 
-                {/* 各日付セル */}
                 {Array.from({ length: totalDays }).map((_, index) => {
                   const day = index + 1;
                   const formattedDay = String(day).padStart(2, "0");
@@ -559,7 +553,6 @@ export default function Home() {
                       </div>
 
                       <div className="space-y-0.5 overflow-hidden w-full my-auto">
-                        {/* 収入表示（緑） */}
                         {dayIncomes.map((inc) => (
                           <div
                             key={inc.id}
@@ -572,7 +565,6 @@ export default function Home() {
                             +¥{inc.amount.toLocaleString()}
                           </div>
                         ))}
-                        {/* 支出表示 */}
                         {dayExpenses.map((item) => {
                           let bgColor = "#F5F2EF";
                           let textColor = "#79665A";
@@ -605,7 +597,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* 今月の収入エリア */}
             <div
               className="p-3.5 rounded-2xl shadow-sm bg-white space-y-2.5 w-full"
               style={{ border: "1px solid #EAE3DD" }}
@@ -694,7 +685,7 @@ export default function Home() {
         <BottomNav />
       </div>
 
-      {/* 収入入力・編集モーダル（日付プルダウン付き） */}
+      {/* 収入入力・編集モーダル（日付プルダウン＋各行にごみ箱ボタン付き） */}
       {incomeModalTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div
@@ -720,10 +711,9 @@ export default function Home() {
                 {tempIncomes.map((item) => (
                   <div
                     key={item.id}
-                    className="p-2 rounded-xl border border-[#EAE3DD] space-y-2"
+                    className="p-2 rounded-xl border border-[#EAE3DD] space-y-2 relative"
                   >
                     <div className="flex gap-2">
-                      {/* 日付プルダウン */}
                       <select
                         value={item.day || 1}
                         onChange={(e) =>
@@ -740,7 +730,6 @@ export default function Home() {
                         )}
                       </select>
 
-                      {/* カテゴリ */}
                       <select
                         value={item.category}
                         onChange={(e) =>
@@ -770,15 +759,15 @@ export default function Home() {
                         className="w-full rounded-lg p-1.5 text-xs outline-none bg-white border border-[#EAE3DD]"
                         placeholder="金額 (円)"
                       />
-                      {tempIncomes.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveIncomeRow(item.id)}
-                          className="p-1 text-red-400 hover:text-red-600 cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
+                      {/* ごみ箱ボタン */}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveIncomeRow(item.id)}
+                        className="p-1.5 text-red-400 hover:text-red-600 cursor-pointer"
+                        title="削除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 ))}
