@@ -69,6 +69,8 @@ export default function SettingsPage() {
 
   const [husbandName, setHusbandName] = useState("夫");
   const [wifeName, setWifeName] = useState("妻");
+  const [husbandLineId, setHusbandLineId] = useState("");
+  const [wifeLineId, setWifeLineId] = useState("");
 
   const [weeklyBudget, setWeeklyBudget] = useState(30000);
   const [categoryBudgets, setCategoryBudgets] = useState<{
@@ -129,8 +131,6 @@ export default function SettingsPage() {
   };
 
   const fullCategories = getFullCategories(categories);
-
-  // ★ 予算設定画面には「共通」「夫」「妻」を含めず、純粋なカスタムカテゴリのみを対象にする
   const customCategoriesOnly = categories.filter(
     (c) =>
       !c.isSystem &&
@@ -142,43 +142,48 @@ export default function SettingsPage() {
   );
 
   useEffect(() => {
+    const processConfigData = (parsed: any) => {
+      if (parsed.weeklyBudget) setWeeklyBudget(parsed.weeklyBudget);
+      if (parsed.categoryBudgets) {
+        const validCustomNames = (parsed.categories || [])
+          .filter(
+            (c: CategoryItem) =>
+              !c.isSystem &&
+              c.name !== "共通" &&
+              c.name !== "夫" &&
+              c.name !== "妻",
+          )
+          .map((c: CategoryItem) => c.name);
+        const cleanedBudgets: { [key: string]: number } = {};
+        validCustomNames.forEach((name: string) => {
+          if (parsed.categoryBudgets[name] !== undefined) {
+            cleanedBudgets[name] = parsed.categoryBudgets[name];
+          }
+        });
+        setCategoryBudgets(cleanedBudgets);
+      }
+      if (parsed.husbandName) setHusbandName(parsed.husbandName);
+      if (parsed.wifeName) setWifeName(parsed.wifeName);
+      if (parsed.husbandLineId) setHusbandLineId(parsed.husbandLineId);
+      if (parsed.wifeLineId) setWifeLineId(parsed.wifeLineId);
+      if (parsed.commonColor) setCommonColor(parsed.commonColor);
+      if (parsed.husbandColor) setHusbandColor(parsed.husbandColor);
+      if (parsed.wifeColor) setWifeColor(parsed.wifeColor);
+      if (parsed.categories) {
+        setCategories(parsed.categories);
+      } else {
+        setCategories([
+          { id: "1", name: "食費", color: "#A6CBAA" },
+          { id: "2", name: "日用品費", color: "#E8C170" },
+          { id: "3", name: "その他", color: "#B6A4E2" },
+        ]);
+      }
+    };
+
     const localConfig = localStorage.getItem("app_config");
     if (localConfig) {
       try {
-        const parsed = JSON.parse(localConfig);
-        if (parsed.weeklyBudget) setWeeklyBudget(parsed.weeklyBudget);
-        if (parsed.categoryBudgets) {
-          const validCustomNames = (parsed.categories || [])
-            .filter(
-              (c: CategoryItem) =>
-                !c.isSystem &&
-                c.name !== "共通" &&
-                c.name !== "夫" &&
-                c.name !== "妻",
-            )
-            .map((c: CategoryItem) => c.name);
-          const cleanedBudgets: { [key: string]: number } = {};
-          validCustomNames.forEach((name: string) => {
-            if (parsed.categoryBudgets[name] !== undefined) {
-              cleanedBudgets[name] = parsed.categoryBudgets[name];
-            }
-          });
-          setCategoryBudgets(cleanedBudgets);
-        }
-        if (parsed.husbandName) setHusbandName(parsed.husbandName);
-        if (parsed.wifeName) setWifeName(parsed.wifeName);
-        if (parsed.commonColor) setCommonColor(parsed.commonColor);
-        if (parsed.husbandColor) setHusbandColor(parsed.husbandColor);
-        if (parsed.wifeColor) setWifeColor(parsed.wifeColor);
-        if (parsed.categories) {
-          setCategories(parsed.categories);
-        } else {
-          setCategories([
-            { id: "1", name: "食費", color: "#A6CBAA" },
-            { id: "2", name: "日用品費", color: "#E8C170" },
-            { id: "3", name: "その他", color: "#B6A4E2" },
-          ]);
-        }
+        processConfigData(JSON.parse(localConfig));
       } catch (e) {}
     } else {
       setCategories([
@@ -201,32 +206,7 @@ export default function SettingsPage() {
           const docRef = doc(db, "settings", "config");
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
-            const data = docSnap.data();
-            if (data.weeklyBudget) setWeeklyBudget(data.weeklyBudget);
-            if (data.categoryBudgets) {
-              const validCustomNames = (data.categories || [])
-                .filter(
-                  (c: CategoryItem) =>
-                    !c.isSystem &&
-                    c.name !== "共通" &&
-                    c.name !== "夫" &&
-                    c.name !== "妻",
-                )
-                .map((c: CategoryItem) => c.name);
-              const cleanedBudgets: { [key: string]: number } = {};
-              validCustomNames.forEach((name: string) => {
-                if (data.categoryBudgets[name] !== undefined) {
-                  cleanedBudgets[name] = data.categoryBudgets[name];
-                }
-              });
-              setCategoryBudgets(cleanedBudgets);
-            }
-            if (data.husbandName) setHusbandName(data.husbandName);
-            if (data.wifeName) setWifeName(data.wifeName);
-            if (data.commonColor) setCommonColor(data.commonColor);
-            if (data.husbandColor) setHusbandColor(data.husbandColor);
-            if (data.wifeColor) setWifeColor(data.wifeColor);
-            if (data.categories) setCategories(data.categories);
+            processConfigData(docSnap.data());
           }
 
           const querySnapshot = await getDocs(collection(db, "expenses"));
@@ -254,6 +234,8 @@ export default function SettingsPage() {
       categories,
       husbandName,
       wifeName,
+      husbandLineId,
+      wifeLineId,
       commonColor,
       husbandColor,
       wifeColor,
@@ -560,7 +542,6 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* 予算の目安設定画面（カスタムカテゴリのみ表示） */}
             {currentView === "budget" && (
               <form
                 onSubmit={handleSaveBudgetConfig}
@@ -624,6 +605,7 @@ export default function SettingsPage() {
               </form>
             )}
 
+            {/* プロフィールおよびLINE ID設定画面 */}
             {currentView === "profile" && (
               <form
                 onSubmit={handleSaveProfileConfig}
@@ -631,7 +613,7 @@ export default function SettingsPage() {
                 style={{ border: "1px solid #EAE3DD" }}
               >
                 <h3 className="font-bold text-xs" style={{ color: "#79665A" }}>
-                  プロフィールの変更
+                  プロフィールの変更 & LINE通知設定
                 </h3>
 
                 <div className="space-y-3">
@@ -656,6 +638,28 @@ export default function SettingsPage() {
                       className="block text-[11px] font-semibold mb-1"
                       style={{ color: "#A99A8E" }}
                     >
+                      夫のLINE User ID (Uから始まる文字列)
+                    </label>
+                    <input
+                      type="text"
+                      value={husbandLineId}
+                      onChange={(e) => setHusbandLineId(e.target.value)}
+                      className="w-full rounded-xl p-2.5 text-xs outline-none bg-white font-mono"
+                      style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                      placeholder="U12345678..."
+                    />
+                  </div>
+
+                  <div
+                    className="pt-2"
+                    style={{ borderTop: "1px solid #EAE3DD" }}
+                  ></div>
+
+                  <div>
+                    <label
+                      className="block text-[11px] font-semibold mb-1"
+                      style={{ color: "#A99A8E" }}
+                    >
                       妻の表示名
                     </label>
                     <input
@@ -665,6 +669,22 @@ export default function SettingsPage() {
                       className="w-full rounded-xl p-2.5 text-xs outline-none bg-white"
                       style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                       required
+                    />
+                  </div>
+                  <div>
+                    <label
+                      className="block text-[11px] font-semibold mb-1"
+                      style={{ color: "#A99A8E" }}
+                    >
+                      妻のLINE User ID (Uから始まる文字列)
+                    </label>
+                    <input
+                      type="text"
+                      value={wifeLineId}
+                      onChange={(e) => setWifeLineId(e.target.value)}
+                      className="w-full rounded-xl p-2.5 text-xs outline-none bg-white font-mono"
+                      style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                      placeholder="U87654321..."
                     />
                   </div>
 

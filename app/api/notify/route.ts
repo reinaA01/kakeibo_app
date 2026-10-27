@@ -21,7 +21,7 @@ export async function GET(request: Request) {
       );
     }
 
-    // ★ 1. 設定（config）から夫と妻のLINE IDを取得する
+    // ★ 設定（config）から夫と妻のLINE IDを取得する
     const configDoc = await getDoc(doc(db, "settings", "config"));
     let husbandLineId = process.env.HUSBAND_LINE_USER_ID || "";
     let wifeLineId = process.env.WIFE_LINE_USER_ID || "";
@@ -72,13 +72,12 @@ export async function GET(request: Request) {
     }
 
     for (const item of notificationsToSend) {
-      // ★ 2. 負担区分（ownership）に応じて送信先のLINE IDを動的に切り替える
+      // ★ 負担区分（ownership）に応じて送信先のLINE IDを動的に切り替える
       let targetUserId = husbandLineId; // デフォルトは夫
       if (item.ownership === "wife") {
         targetUserId = wifeLineId;
       } else if (item.ownership === "common") {
-        // 共通の場合は一旦夫へ送る（あるいは両方に送ることも可能）
-        targetUserId = husbandLineId;
+        targetUserId = husbandLineId; // 共通の場合は夫（または必要に応じて調整可能）
       }
 
       if (!targetUserId) {
