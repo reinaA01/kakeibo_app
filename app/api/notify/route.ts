@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  doc,
+  getDoc,
+  updateDoc,
+} from "firebase/firestore";
 
 export async function GET(request: Request) {
   try {
     const today = new Date();
     const currentDay = today.getDate(); // 例: 23日
-    // 「YYYY-MM-DD」形式の本日の日付文字列を作る（例: "2026-10-23"）
     const todayStr = today.toISOString().split("T")[0];
 
     if (!db) {
@@ -16,8 +21,23 @@ export async function GET(request: Request) {
       );
     }
 
+    // ★ 1. 設定（config）から夫と妻のLINE IDを取得する
+    const configDoc = await getDoc(doc(db, "settings", "config"));
+    let husbandLineId = process.env.HUSBAND_LINE_USER_ID || "";
+    let wifeLineId = process.env.WIFE_LINE_USER_ID || "";
+
+    if (configDoc.exists()) {
+      const configData = configDoc.data();
+      if (configData.husbandLineId) husbandLineId = configData.husbandLineId;
+      if (configData.wifeLineId) wifeLineId = configData.wifeLineId;
+    }
+
     const querySnapshot = await getDocs(collection(db, "expenses"));
-    const notificationsToSend: { id: string; title: string }[] = [];
+    const notificationsToSend: {
+      id: string;
+      title: string;
+      ownership: string;
+    }[] = [];
 
     querySnapshot.forEach((docItem) => {
       const data = docItem.data();
@@ -28,7 +48,11 @@ export async function GET(request: Request) {
         Number(data.confirmDay) === currentDay &&
         data.lastNotifiedDate !== todayStr
       ) {
-        notificationsToSend.push({ id: docItem.id, title: data.title });
+        notificationsToSend.push({
+          id: docItem.id,
+          title: data.title,
+          ownership: data.ownership || "common", // 負担区分 (husband / wife / common)
+        });
       }
     });
 
@@ -39,9 +63,8 @@ export async function GET(request: Request) {
     }
 
     const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const userId = process.env.LINE_USER_ID;
 
-    if (!channelAccessToken || !userId) {
+    if (!channelAccessToken) {
       return NextResponse.json(
         { error: "LINE環境変数が設定されていません" },
         { status: 500 },
@@ -49,10 +72,24 @@ export async function GET(request: Request) {
     }
 
     for (const item of notificationsToSend) {
+      // ★ 2. 負担区分（ownership）に応じて送信先のLINE IDを動的に切り替える
+      let targetUserId = husbandLineId; // デフォルトは夫
+      if (item.ownership === "wife") {
+        targetUserId = wifeLineId;
+      } else if (item.ownership === "common") {
+        // 共通の場合は一旦夫へ送る（あるいは両方に送ることも可能）
+        targetUserId = husbandLineId;
+      }
+
+      if (!targetUserId) {
+        console.warn(`[${item.title}] の通知先LINE IDが設定されていません。`);
+        continue;
+      }
+
       const liffUrl = `https://kakeibo-app-two-xi.vercel.app/liff/input?title=${encodeURIComponent(item.title)}`;
 
       const messagePayload = {
-        to: userId,
+        to: targetUserId, // 切り替えた宛先IDを使用
         messages: [
           {
             type: "text",
@@ -70,7 +107,6 @@ export async function GET(request: Request) {
         body: JSON.stringify(messagePayload),
       });
 
-      // LINE送信が成功したら、Firestore側に「今日通知済み」のマーク（lastNotifiedDate）を書き込む
       if (res.ok) {
         const docRef = doc(db, "expenses", item.id);
         await updateDoc(docRef, {
