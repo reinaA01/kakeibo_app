@@ -41,6 +41,8 @@ interface FixedExpense {
   ownership: "common" | "husband" | "wife";
   expenseType: "fixed" | "variable";
   confirmDay?: number | null;
+  startYM?: string;
+  endYM?: string;
   createdAt?: Date;
 }
 
@@ -106,6 +108,8 @@ export default function SettingsPage() {
   >("common");
   const [expType, setExpType] = useState<"fixed" | "variable">("fixed");
   const [expConfirmDay, setExpConfirmDay] = useState("20");
+  const [expStartYM, setExpStartYM] = useState("");
+  const [expEndYM, setExpEndYM] = useState("");
 
   const getFullCategories = (customCats: CategoryItem[]) => {
     const systemCats: CategoryItem[] = [
@@ -328,6 +332,8 @@ export default function SettingsPage() {
       ownership: expOwnership,
       expenseType: expType,
       confirmDay: expType === "variable" ? Number(expConfirmDay) : null,
+      startYM: expStartYM || "",
+      endYM: expEndYM || "",
       createdAt: new Date(),
     };
 
@@ -348,6 +354,8 @@ export default function SettingsPage() {
     setEditingExpenseId(null);
     setExpTitle("");
     setExpAmount("");
+    setExpStartYM("");
+    setExpEndYM("");
 
     if (db) {
       if (editingExpenseId) {
@@ -605,7 +613,6 @@ export default function SettingsPage() {
               </form>
             )}
 
-            {/* プロフィールおよびLINE ID設定画面 */}
             {currentView === "profile" && (
               <form
                 onSubmit={handleSaveProfileConfig}
@@ -714,6 +721,8 @@ export default function SettingsPage() {
                       setExpTitle("");
                       setExpAmount("");
                       setExpType("fixed");
+                      setExpStartYM("");
+                      setExpEndYM("");
                       setIsExpenseModalOpen(true);
                     }}
                     className="flex items-center gap-1 text-white px-3 py-1.5 rounded-xl font-bold shadow-xs cursor-pointer"
@@ -767,7 +776,7 @@ export default function SettingsPage() {
                         className="p-3 rounded-2xl bg-white shadow-sm flex items-center justify-between"
                         style={{ border: "1px solid #EAE3DD" }}
                       >
-                        <div>
+                        <div className="flex-1 pr-2">
                           <div className="flex items-center gap-1.5">
                             <span
                               className="font-bold text-xs"
@@ -802,16 +811,33 @@ export default function SettingsPage() {
                               )
                             </span>
                           </div>
+                          {(item.startYM || item.endYM) && (
+                            <div
+                              className="text-[10px] mt-1 font-semibold"
+                              style={{ color: "#A99A8E" }}
+                            >
+                              期間: {item.startYM || "指定なし"} 〜{" "}
+                              {item.endYM || "指定なし"}
+                            </div>
+                          )}
                         </div>
 
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-shrink-0">
                           {item.expenseType !== "variable" && (
-                            <span
-                              className="font-extrabold text-sm"
-                              style={{ color: "#79665A" }}
-                            >
-                              ¥ {item.amount.toLocaleString()}
-                            </span>
+                            <div className="flex items-baseline gap-0.5">
+                              <span
+                                className="text-[10px] font-bold"
+                                style={{ color: "#79665A" }}
+                              >
+                                ¥
+                              </span>
+                              <span
+                                className="font-extrabold text-sm"
+                                style={{ color: "#79665A" }}
+                              >
+                                {item.amount.toLocaleString()}
+                              </span>
+                            </div>
                           )}
                           <div className="flex items-center gap-1">
                             <button
@@ -823,6 +849,8 @@ export default function SettingsPage() {
                                 setExpOwnership(item.ownership);
                                 setExpType(item.expenseType || "fixed");
                                 setExpConfirmDay(String(item.confirmDay || 20));
+                                setExpStartYM(item.startYM || "");
+                                setExpEndYM(item.endYM || "");
                                 setIsExpenseModalOpen(true);
                               }}
                               className="p-1 rounded-lg hover:bg-gray-100 cursor-pointer"
@@ -1075,6 +1103,42 @@ export default function SettingsPage() {
                   />
                 </div>
               )}
+
+              <div
+                className="grid grid-cols-2 gap-2 pt-1"
+                style={{ borderTop: "1px dashed #EAE3DD" }}
+              >
+                <div>
+                  <label
+                    className="block text-[10px] font-semibold mb-1"
+                    style={{ color: "#A99A8E" }}
+                  >
+                    開始年月 (任意)
+                  </label>
+                  <input
+                    type="month"
+                    value={expStartYM}
+                    onChange={(e) => setExpStartYM(e.target.value)}
+                    className="w-full rounded-xl p-2 text-base outline-none bg-white"
+                    style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                  />
+                </div>
+                <div>
+                  <label
+                    className="block text-[10px] font-semibold mb-1"
+                    style={{ color: "#A99A8E" }}
+                  >
+                    終了年月 (任意)
+                  </label>
+                  <input
+                    type="month"
+                    value={expEndYM}
+                    onChange={(e) => setExpEndYM(e.target.value)}
+                    className="w-full rounded-xl p-2 text-base outline-none bg-white"
+                    style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                  />
+                </div>
+              </div>
 
               <div>
                 <label
