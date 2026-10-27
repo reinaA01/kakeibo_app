@@ -27,7 +27,7 @@ import BottomNav from "@/src/components/BottomNav";
 interface ExpenseItem {
   id: string;
   title: string;
-  expenseType?: "fixed" | "variable";
+  expenseType?: "fixed" | "variable" | "one-time";
   amount: number;
   dueDay: number;
   ownership: "common" | "husband" | "wife";
@@ -58,7 +58,9 @@ export default function Home() {
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [title, setTitle] = useState("");
-  const [expenseType, setExpenseType] = useState<"fixed" | "variable">("fixed");
+  const [expenseType, setExpenseType] = useState<
+    "fixed" | "variable" | "one-time"
+  >("fixed");
   const [amount, setAmount] = useState("");
   const [dueDay, setDueDay] = useState("27");
   const [ownership, setOwnership] = useState<"common" | "husband" | "wife">(
@@ -199,9 +201,28 @@ export default function Home() {
     setIsModalOpen(false);
   };
 
+  const handleDeleteExpenseItem = async (id: string) => {
+    if (!confirm("本当にこの単発の支払いを削除しますか？")) return;
+    try {
+      if (db) {
+        await deleteDoc(doc(db, "expenses", id));
+      }
+      const updated = expenses.filter((item) => item.id !== id);
+      setExpenses(updated);
+      localStorage.setItem("app_expenses", JSON.stringify(updated));
+
+      // プレビュー中の内訳リスト側も更新
+      setSelectedDayExpenses(
+        selectedDayExpenses.filter((item) => item.id !== id),
+      );
+    } catch (e) {
+      console.error("削除エラー:", e);
+    }
+  };
+
   const activeSelectedYM = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
   const currentMonthFilteredExpenses = expenses.filter((item) => {
-    if (item.expenseType === "variable") {
+    if (item.expenseType === "variable" || item.expenseType === "one-time") {
       return item.createdAt === activeSelectedYM && item.amount > 0;
     }
     return true;
@@ -339,7 +360,7 @@ export default function Home() {
   const expensesByDate: { [key: string]: ExpenseItem[] } = {};
   currentMonthFilteredExpenses.forEach((item) => {
     let dateStr = "";
-    if (item.expenseType === "variable") {
+    if (item.expenseType === "variable" || item.expenseType === "one-time") {
       const formattedDay = String(item.dueDay).padStart(2, "0");
       const formattedMonth = String(currentMonth).padStart(2, "0");
       dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
@@ -378,13 +399,13 @@ export default function Home() {
 
   return (
     <div
-      className="w-full min-h-screen pb-24 relative font-sans text-xs"
+      className="w-full min-h-screen pb-20 relative font-sans text-xs"
       style={{ backgroundColor: "#FFFCF9", color: "#79665A" }}
     >
       <div className="w-full max-w-lg mx-auto min-h-screen relative flex flex-col justify-between">
         <div>
           <header
-            className="flex justify-between items-center px-4 h-16 pt-2 bg-white/90 backdrop-blur sticky top-0 z-10 w-full"
+            className="flex justify-between items-center px-4 h-14 bg-white/90 backdrop-blur sticky top-0 z-10 w-full"
             style={{ borderBottom: "1px solid #EAE3DD" }}
           >
             <div
@@ -879,6 +900,17 @@ export default function Home() {
                           style={{ color: "#79665A" }}
                         >
                           [支出] {item.title}
+                          {item.expenseType === "one-time" && (
+                            <span
+                              className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded font-semibold"
+                              style={{
+                                backgroundColor: "#FCE9ED",
+                                color: "#D47A90",
+                              }}
+                            >
+                              単発
+                            </span>
+                          )}
                         </div>
                         <div
                           className="text-[10px]"
@@ -892,11 +924,23 @@ export default function Home() {
                               : "共通"}
                         </div>
                       </div>
-                      <div
-                        className="font-extrabold text-sm"
-                        style={{ color: "#79665A" }}
-                      >
-                        -¥ {item.amount.toLocaleString()}
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="font-extrabold text-sm"
+                          style={{ color: "#79665A" }}
+                        >
+                          -¥ {item.amount.toLocaleString()}
+                        </div>
+                        {item.expenseType === "one-time" && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteExpenseItem(item.id)}
+                            className="p-1 text-red-400 hover:text-red-600 cursor-pointer"
+                            title="削除"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -953,8 +997,8 @@ export default function Home() {
                 >
                   種別
                 </label>
-                <div className="flex gap-4 text-xs font-semibold">
-                  <label className="flex items-center gap-1.5 cursor-pointer">
+                <div className="flex gap-3 text-xs font-semibold flex-wrap">
+                  <label className="flex items-center gap-1 cursor-pointer">
                     <input
                       type="radio"
                       name="expenseType"
@@ -964,7 +1008,7 @@ export default function Home() {
                     />
                     <span>固定費</span>
                   </label>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
+                  <label className="flex items-center gap-1 cursor-pointer">
                     <input
                       type="radio"
                       name="expenseType"
@@ -972,7 +1016,17 @@ export default function Home() {
                       onChange={() => setExpenseType("variable")}
                       className="accent-[#F28FA4]"
                     />
-                    <span>変動費 (LINE通知対象)</span>
+                    <span>変動費 (LINE通知)</span>
+                  </label>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="expenseType"
+                      checked={expenseType === "one-time"}
+                      onChange={() => setExpenseType("one-time")}
+                      className="accent-[#F28FA4]"
+                    />
+                    <span>単発</span>
                   </label>
                 </div>
               </div>
@@ -1000,7 +1054,9 @@ export default function Home() {
                     className="block text-[11px] font-semibold mb-1"
                     style={{ color: "#A99A8E" }}
                   >
-                    引き落とし日 (日)
+                    {expenseType === "one-time"
+                      ? "支払日 (日)"
+                      : "引き落とし日 (日)"}
                   </label>
                   <input
                     type="number"

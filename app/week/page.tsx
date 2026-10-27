@@ -226,6 +226,11 @@ export default function WeekPage() {
 
   const currentMonday = getMondayOfCurrentWeek(currentDate);
 
+  // 週の月曜日が属する年月文字列 (例: "2026-10") を取得
+  const targetYear = currentMonday.getFullYear();
+  const targetMonth = currentMonday.getMonth() + 1;
+  const targetYM = `${targetYear}-${String(targetMonth).padStart(2, "0")}`;
+
   const weekDaysConfig = ["月", "火", "水", "木", "金", "土", "日"];
   const sampleWeeklyData = weekDaysConfig.map((dayName, index) => {
     const targetDate = new Date(currentMonday);
@@ -335,8 +340,14 @@ export default function WeekPage() {
     ? records.filter((r) => r.dateStr === selectedDateForList)
     : [];
 
+  // 月のカテゴリ別一覧用（月曜日の属する月のレコードのみ対象）
   const selectedCategoryRecords = selectedCategoryForList
-    ? records.filter((r) => r.category === selectedCategoryForList)
+    ? records.filter(
+        (r) =>
+          r.category === selectedCategoryForList &&
+          r.dateStr &&
+          r.dateStr.startsWith(targetYM),
+      )
     : [];
 
   return (
@@ -457,7 +468,7 @@ export default function WeekPage() {
                   className="w-3.5 h-3.5"
                   style={{ color: "#F28FA4" }}
                 />
-                <span>今週の生活費</span>
+                <span>今週の生活費（日付クリックで一覧表示）</span>
               </div>
 
               <div className="space-y-1.5 w-full">
@@ -502,6 +513,7 @@ export default function WeekPage() {
               </div>
             </div>
 
+            {/* 今月のカテゴリ合計（カスタムカテゴリのみ表示、月曜日の属する月で集計） */}
             <div
               className="p-3.5 rounded-2xl bg-white shadow-sm space-y-2.5 w-full"
               style={{ border: "1px solid #EAE3DD" }}
@@ -515,7 +527,7 @@ export default function WeekPage() {
                     className="w-3.5 h-3.5"
                     style={{ color: "#79665A" }}
                   />
-                  <span>今週のカテゴリ合計（クリックで一覧表示）</span>
+                  <span>今月のカテゴリ合計（クリックで一覧表示）</span>
                 </div>
                 <div className="w-6 h-6 relative flex-shrink-0">
                   <Image
@@ -531,7 +543,12 @@ export default function WeekPage() {
               <div className="grid grid-cols-2 gap-2.5 w-full">
                 {customCategoriesOnly.map((cat) => {
                   const catTotal = records
-                    .filter((r) => r.category === cat.name)
+                    .filter(
+                      (r) =>
+                        r.category === cat.name &&
+                        r.dateStr &&
+                        r.dateStr.startsWith(targetYM),
+                    )
                     .reduce((sum, r) => sum + r.amount, 0);
                   const target =
                     categoryBudgets[cat.name] !== undefined
@@ -637,7 +654,7 @@ export default function WeekPage() {
                   type="date"
                   value={modalDate}
                   onChange={(e) => setModalDate(e.target.value)}
-                  className="w-full rounded-xl p-2.5 text-base outline-none bg-white border border-[#EAE3DD]"
+                  className="w-full rounded-xl p-2.5 text-base outline-none bg-white border border-[#EAE3DD] box-border"
                   required
                 />
               </div>
@@ -803,13 +820,13 @@ export default function WeekPage() {
               className="font-bold text-sm text-center"
               style={{ color: "#79665A" }}
             >
-              「{selectedCategoryForList}」の支出一覧
+              「{selectedCategoryForList}」の支出一覧 ({targetMonth}月)
             </h3>
 
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {selectedCategoryRecords.length === 0 ? (
                 <p className="text-center text-gray-400 py-4 text-xs">
-                  このカテゴリの記録はありません。
+                  この月のカテゴリ記録はありません。
                 </p>
               ) : (
                 selectedCategoryRecords.map((item) => (
