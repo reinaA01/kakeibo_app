@@ -161,12 +161,11 @@ export default function AnalysisPage() {
       (r) => r.dateStr && r.dateStr.startsWith(ym),
     );
 
-    // 変動費は登録された月 (createdAt) が一致する場合のみ集計対象にする
     const monthExpenses = expenses.filter((ex) => {
       if (ex.expenseType === "variable") {
         return ex.createdAt === ym && ex.amount > 0;
       }
-      return true; // 固定費は常時対象
+      return true;
     });
 
     let commonExpenseTotal = 0;
@@ -310,10 +309,11 @@ export default function AnalysisPage() {
                   className="w-3.5 h-3.5"
                   style={{ color: "#A99A8E" }}
                 />
+                {/* 画面拡大を防ぐため text-base (16px) を適用 */}
                 <select
                   value={selectedYearMonth}
                   onChange={(e) => setSelectedYearMonth(e.target.value)}
-                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full text-base"
                 >
                   {monthOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>

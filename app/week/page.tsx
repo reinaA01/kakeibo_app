@@ -119,7 +119,6 @@ export default function WeekPage() {
 
   const fullCategories = getFullCategories(categories);
 
-  // カスタムカテゴリのみを抽出
   const customCategoriesOnly = categories.filter(
     (c) =>
       !c.isSystem &&
@@ -154,7 +153,6 @@ export default function WeekPage() {
       if (parsed.weeklyBudget) setWeeklyBudget(parsed.weeklyBudget);
       if (parsed.categories) {
         setCategories(parsed.categories);
-        // 有効なカスタムカテゴリ名のみで予算を再構築・同期
         const validCustomNames = parsed.categories
           .filter(
             (c: CategoryItem) =>
@@ -459,7 +457,7 @@ export default function WeekPage() {
                   className="w-3.5 h-3.5"
                   style={{ color: "#F28FA4" }}
                 />
-                <span>今週の生活費（日付クリックで一覧表示）</span>
+                <span>今週の生活費</span>
               </div>
 
               <div className="space-y-1.5 w-full">
@@ -504,7 +502,6 @@ export default function WeekPage() {
               </div>
             </div>
 
-            {/* 今週のカテゴリ合計（カスタムカテゴリのみ表示） */}
             <div
               className="p-3.5 rounded-2xl bg-white shadow-sm space-y-2.5 w-full"
               style={{ border: "1px solid #EAE3DD" }}
@@ -640,7 +637,7 @@ export default function WeekPage() {
                   type="date"
                   value={modalDate}
                   onChange={(e) => setModalDate(e.target.value)}
-                  className="w-full rounded-xl p-2.5 text-xs outline-none bg-white border border-[#EAE3DD]"
+                  className="w-full rounded-xl p-2.5 text-base outline-none bg-white border border-[#EAE3DD]"
                   required
                 />
               </div>
@@ -655,7 +652,7 @@ export default function WeekPage() {
                 <select
                   value={modalCategory}
                   onChange={(e) => setModalCategory(e.target.value)}
-                  className="w-full rounded-xl p-2.5 text-xs outline-none bg-white border border-[#EAE3DD]"
+                  className="w-full rounded-xl p-2.5 text-base outline-none bg-white border border-[#EAE3DD]"
                 >
                   {fullCategories.map((cat) => (
                     <option key={cat.id} value={cat.name}>
@@ -676,7 +673,7 @@ export default function WeekPage() {
                   type="number"
                   value={modalAmount}
                   onChange={(e) => setModalAmount(e.target.value)}
-                  className="w-full rounded-xl p-2.5 text-xs outline-none bg-white border border-[#EAE3DD]"
+                  className="w-full rounded-xl p-2.5 text-base outline-none bg-white border border-[#EAE3DD]"
                   placeholder="例: 1500"
                   required
                 />
@@ -693,7 +690,7 @@ export default function WeekPage() {
                   type="text"
                   value={modalMemo}
                   onChange={(e) => setModalMemo(e.target.value)}
-                  className="w-full rounded-xl p-2.5 text-xs outline-none bg-white border border-[#EAE3DD]"
+                  className="w-full rounded-xl p-2.5 text-base outline-none bg-white border border-[#EAE3DD]"
                   placeholder="例: スーパーでの買い物"
                 />
               </div>

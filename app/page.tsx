@@ -180,7 +180,7 @@ export default function Home() {
       dueDay: Number(dueDay),
       ownership,
       confirmDay: expenseType === "variable" ? Number(confirmDay) : null,
-      createdAt: currentYM, // 登録された年月を保存
+      createdAt: currentYM,
     };
 
     try {
@@ -199,13 +199,12 @@ export default function Home() {
     setIsModalOpen(false);
   };
 
-  // 変動費は登録された月 (createdAt) に合致する場合のみ、その月に反映させる
   const activeSelectedYM = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
   const currentMonthFilteredExpenses = expenses.filter((item) => {
     if (item.expenseType === "variable") {
       return item.createdAt === activeSelectedYM && item.amount > 0;
     }
-    return true; // 固定費は全月に反映
+    return true;
   });
 
   const husbandTotal = currentMonthFilteredExpenses
@@ -379,13 +378,13 @@ export default function Home() {
 
   return (
     <div
-      className="w-full min-h-screen pb-20 relative font-sans text-xs"
+      className="w-full min-h-screen pb-24 relative font-sans text-xs"
       style={{ backgroundColor: "#FFFCF9", color: "#79665A" }}
     >
       <div className="w-full max-w-lg mx-auto min-h-screen relative flex flex-col justify-between">
         <div>
           <header
-            className="flex justify-between items-center px-4 h-14 bg-white/90 backdrop-blur sticky top-0 z-10 w-full"
+            className="flex justify-between items-center px-4 h-16 pt-2 bg-white/90 backdrop-blur sticky top-0 z-10 w-full"
             style={{ borderBottom: "1px solid #EAE3DD" }}
           >
             <div
@@ -723,7 +722,7 @@ export default function Home() {
                         onChange={(e) =>
                           handleIncomeChange(item.id, "day", e.target.value)
                         }
-                        className="w-1/3 rounded-lg p-1.5 text-xs outline-none bg-white border border-[#EAE3DD]"
+                        className="w-1/3 rounded-lg p-1.5 text-base outline-none bg-white border border-[#EAE3DD]"
                       >
                         {Array.from({ length: 31 }, (_, i) => i + 1).map(
                           (d) => (
@@ -743,7 +742,7 @@ export default function Home() {
                             e.target.value,
                           )
                         }
-                        className="w-2/3 rounded-lg p-1.5 text-xs outline-none bg-white border border-[#EAE3DD]"
+                        className="w-2/3 rounded-lg p-1.5 text-base outline-none bg-white border border-[#EAE3DD]"
                       >
                         {INCOME_CATEGORIES.map((cat) => (
                           <option key={cat} value={cat}>
@@ -760,7 +759,7 @@ export default function Home() {
                         onChange={(e) =>
                           handleIncomeChange(item.id, "amount", e.target.value)
                         }
-                        className="w-full rounded-lg p-1.5 text-xs outline-none bg-white border border-[#EAE3DD]"
+                        className="w-full rounded-lg p-1.5 text-base outline-none bg-white border border-[#EAE3DD]"
                         placeholder="金額 (円)"
                       />
                       <button
@@ -940,7 +939,7 @@ export default function Home() {
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                  className="w-full rounded-xl p-2 text-base outline-none bg-white"
                   style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                   placeholder="例: 水道光熱費, クレカ"
                   required
@@ -990,7 +989,7 @@ export default function Home() {
                     type="number"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                    className="w-full rounded-xl p-2 text-base outline-none bg-white"
                     style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                     placeholder="10000"
                     required
@@ -1009,7 +1008,7 @@ export default function Home() {
                     max="31"
                     value={dueDay}
                     onChange={(e) => setDueDay(e.target.value)}
-                    className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                    className="w-full rounded-xl p-2 text-base outline-none bg-white"
                     style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                     required
                   />
@@ -1030,7 +1029,7 @@ export default function Home() {
                     max="31"
                     value={confirmDay}
                     onChange={(e) => setConfirmDay(e.target.value)}
-                    className="w-full rounded-xl p-2 text-xs outline-none bg-amber-50"
+                    className="w-full rounded-xl p-2 text-base outline-none bg-amber-50"
                     style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                     required
                   />
@@ -1051,7 +1050,7 @@ export default function Home() {
                       e.target.value as "common" | "husband" | "wife",
                     )
                   }
-                  className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                  className="w-full rounded-xl p-2 text-base outline-none bg-white"
                   style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                 >
                   <option value="common">共通</option>

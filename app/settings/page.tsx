@@ -585,7 +585,7 @@ export default function SettingsPage() {
                           );
                           setWeeklyBudget(total);
                         }}
-                        className="w-full rounded-xl p-2.5 text-xs outline-none bg-white"
+                        className="w-full rounded-xl p-2.5 text-base outline-none bg-white"
                         style={{
                           border: "1px solid #EAE3DD",
                           color: "#79665A",
@@ -628,7 +628,7 @@ export default function SettingsPage() {
                       type="text"
                       value={husbandName}
                       onChange={(e) => setHusbandName(e.target.value)}
-                      className="w-full rounded-xl p-2.5 text-xs outline-none bg-white"
+                      className="w-full rounded-xl p-2.5 text-base outline-none bg-white"
                       style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                       required
                     />
@@ -644,7 +644,7 @@ export default function SettingsPage() {
                       type="text"
                       value={husbandLineId}
                       onChange={(e) => setHusbandLineId(e.target.value)}
-                      className="w-full rounded-xl p-2.5 text-xs outline-none bg-white font-mono"
+                      className="w-full rounded-xl p-2.5 text-base outline-none bg-white font-mono"
                       style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                       placeholder="U12345678..."
                     />
@@ -666,7 +666,7 @@ export default function SettingsPage() {
                       type="text"
                       value={wifeName}
                       onChange={(e) => setWifeName(e.target.value)}
-                      className="w-full rounded-xl p-2.5 text-xs outline-none bg-white"
+                      className="w-full rounded-xl p-2.5 text-base outline-none bg-white"
                       style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                       required
                     />
@@ -682,7 +682,7 @@ export default function SettingsPage() {
                       type="text"
                       value={wifeLineId}
                       onChange={(e) => setWifeLineId(e.target.value)}
-                      className="w-full rounded-xl p-2.5 text-xs outline-none bg-white font-mono"
+                      className="w-full rounded-xl p-2.5 text-base outline-none bg-white font-mono"
                       style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                       placeholder="U87654321..."
                     />
@@ -975,7 +975,7 @@ export default function SettingsPage() {
                   type="text"
                   value={expTitle}
                   onChange={(e) => setExpTitle(e.target.value)}
-                  className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                  className="w-full rounded-xl p-2 text-base outline-none bg-white"
                   style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                   placeholder="例: 水道光熱費, クレカ"
                   required
@@ -1028,7 +1028,7 @@ export default function SettingsPage() {
                       type="number"
                       value={expAmount}
                       onChange={(e) => setExpAmount(e.target.value)}
-                      className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                      className="w-full rounded-xl p-2 text-base outline-none bg-white"
                       style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                       placeholder="10000"
                       required
@@ -1048,7 +1048,7 @@ export default function SettingsPage() {
                     max="31"
                     value={expDueDay}
                     onChange={(e) => setExpDueDay(e.target.value)}
-                    className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                    className="w-full rounded-xl p-2 text-base outline-none bg-white"
                     style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                     required
                   />
@@ -1069,7 +1069,7 @@ export default function SettingsPage() {
                     max="31"
                     value={expConfirmDay}
                     onChange={(e) => setExpConfirmDay(e.target.value)}
-                    className="w-full rounded-xl p-2 text-xs outline-none bg-amber-50"
+                    className="w-full rounded-xl p-2 text-base outline-none bg-amber-50"
                     style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                     required
                   />
@@ -1086,7 +1086,7 @@ export default function SettingsPage() {
                 <select
                   value={expOwnership}
                   onChange={(e) => setExpOwnership(e.target.value as any)}
-                  className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                  className="w-full rounded-xl p-2 text-base outline-none bg-white"
                   style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                 >
                   <option value="common">共通</option>
@@ -1147,7 +1147,7 @@ export default function SettingsPage() {
                     type="text"
                     value={newCatName}
                     onChange={(e) => setNewCatName(e.target.value)}
-                    className="w-full rounded-xl p-2 text-xs outline-none bg-white"
+                    className="w-full rounded-xl p-2 text-base outline-none bg-white"
                     style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
                     placeholder="例: 娯楽費、医療費"
                     required
