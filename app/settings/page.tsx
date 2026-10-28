@@ -37,9 +37,9 @@ interface FixedExpense {
   id: string;
   title: string;
   amount: number;
-  dueDay: number;
+  dueDay: number | "end";
   ownership: "common" | "husband" | "wife";
-  expenseType: "fixed" | "variable";
+  expenseType: "fixed" | "variable" | "one-time";
   confirmDay?: number | null;
   startYM?: string;
   endYM?: string;
@@ -54,16 +54,16 @@ interface CategoryItem {
 }
 
 const PRESET_COLORS = [
-  "#F2A6B9", // コーラルピンク
-  "#E8C170", // クリームイエロー
-  "#A6CBAA", // ミントグリーン
-  "#78B4E2", // スカイブルー
-  "#B6A4E2", // ラベンダー
-  "#F2C299", // アプリコット
-  "#93D5E1", // アクアミント
-  "#E6A1C4", // ローズピンク
-  "#D7C49E", // サンドベージュ
-  "#C9BFB7", // グレージュ
+  "#F2A6B9",
+  "#E8C170",
+  "#A6CBAA",
+  "#78B4E2",
+  "#B6A4E2",
+  "#F2C299",
+  "#93D5E1",
+  "#E6A1C4",
+  "#D7C49E",
+  "#C9BFB7",
 ];
 
 export default function SettingsPage() {
@@ -102,7 +102,7 @@ export default function SettingsPage() {
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [expTitle, setExpTitle] = useState("");
   const [expAmount, setExpAmount] = useState("");
-  const [expDueDay, setExpDueDay] = useState("27");
+  const [expDueDay, setExpDueDay] = useState<string>("27");
   const [expOwnership, setExpOwnership] = useState<
     "common" | "husband" | "wife"
   >("common");
@@ -325,10 +325,13 @@ export default function SettingsPage() {
   const handleSaveExpense = (e: React.FormEvent) => {
     e.preventDefault();
     const tempId = editingExpenseId || Date.now().toString();
+
+    const parsedDueDay = expDueDay === "end" ? "end" : Number(expDueDay);
+
     const expenseData = {
       title: expTitle,
       amount: expType === "variable" ? 0 : Number(expAmount) || 0,
-      dueDay: Number(expDueDay),
+      dueDay: parsedDueDay,
       ownership: expOwnership,
       expenseType: expType,
       confirmDay: expType === "variable" ? Number(expConfirmDay) : null,
@@ -337,7 +340,12 @@ export default function SettingsPage() {
       createdAt: new Date(),
     };
 
-    const newItem: FixedExpense = { id: tempId, ...expenseData };
+    // ▼ ここに "as FixedExpense" を追加して型を強制一致させます
+    const newItem: FixedExpense = {
+      id: tempId,
+      ...expenseData,
+    } as FixedExpense;
+
     let updatedList: FixedExpense[] = [];
     if (editingExpenseId) {
       updatedList = fixedExpenses.map((item) =>
@@ -387,14 +395,16 @@ export default function SettingsPage() {
     }
   };
 
-  const filteredExpenses = fixedExpenses.filter((item) => {
-    if (filterType === "fixed") return item.expenseType === "fixed";
-    if (filterType === "variable") return item.expenseType === "variable";
-    if (filterType === "husband") return item.ownership === "husband";
-    if (filterType === "wife") return item.ownership === "wife";
-    if (filterType === "common") return item.ownership === "common";
-    return true;
-  });
+  const filteredExpenses = fixedExpenses
+    .filter((item) => item.expenseType !== "one-time")
+    .filter((item) => {
+      if (filterType === "fixed") return item.expenseType === "fixed";
+      if (filterType === "variable") return item.expenseType === "variable";
+      if (filterType === "husband") return item.ownership === "husband";
+      if (filterType === "wife") return item.ownership === "wife";
+      if (filterType === "common") return item.ownership === "common";
+      return true;
+    });
 
   return (
     <div
@@ -721,6 +731,7 @@ export default function SettingsPage() {
                       setExpTitle("");
                       setExpAmount("");
                       setExpType("fixed");
+                      setExpDueDay("27");
                       setExpStartYM("");
                       setExpEndYM("");
                       setIsExpenseModalOpen(true);
@@ -796,7 +807,12 @@ export default function SettingsPage() {
                             className="text-[10px] space-x-2 mt-0.5"
                             style={{ color: "#A99A8E" }}
                           >
-                            <span>引落日: {item.dueDay}日</span>
+                            <span>
+                              引落日:{" "}
+                              {item.dueDay === "end"
+                                ? "末日"
+                                : `${item.dueDay}日`}
+                            </span>
                             {item.expenseType === "variable" &&
                               item.confirmDay && (
                                 <span>(確定日: {item.confirmDay}日)</span>
@@ -847,7 +863,11 @@ export default function SettingsPage() {
                                 setExpAmount(String(item.amount));
                                 setExpDueDay(String(item.dueDay));
                                 setExpOwnership(item.ownership);
-                                setExpType(item.expenseType || "fixed");
+                                setExpType(
+                                  item.expenseType === "variable"
+                                    ? "variable"
+                                    : "fixed",
+                                );
                                 setExpConfirmDay(String(item.confirmDay || 20));
                                 setExpStartYM(item.startYM || "");
                                 setExpEndYM(item.endYM || "");
@@ -1068,18 +1088,21 @@ export default function SettingsPage() {
                     className="block text-[11px] font-semibold mb-1"
                     style={{ color: "#A99A8E" }}
                   >
-                    引き落とし日 (日)
+                    引き落とし日
                   </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="31"
+                  <select
                     value={expDueDay}
                     onChange={(e) => setExpDueDay(e.target.value)}
                     className="w-full rounded-xl p-2 text-base outline-none bg-white"
                     style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
-                    required
-                  />
+                  >
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                      <option key={d} value={String(d)}>
+                        {d}日
+                      </option>
+                    ))}
+                    <option value="end">末日</option>
+                  </select>
                 </div>
               </div>
 

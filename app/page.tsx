@@ -29,10 +29,12 @@ interface ExpenseItem {
   title: string;
   expenseType?: "fixed" | "variable" | "one-time";
   amount: number;
-  dueDay: number;
+  dueDay: number | "end";
   ownership: "common" | "husband" | "wife";
   confirmDay?: number | null;
-  createdAt?: string; // "YYYY-MM"
+  startYM?: string;
+  endYM?: string;
+  createdAt?: string;
 }
 
 interface IncomeEntry {
@@ -41,6 +43,7 @@ interface IncomeEntry {
   amount: number;
   day: number;
   ownership: "husband" | "wife";
+  createdAt?: string; // 登録された年月 ("YYYY-MM")
 }
 
 const INCOME_CATEGORIES: IncomeEntry["category"][] = [
@@ -50,6 +53,67 @@ const INCOME_CATEGORIES: IncomeEntry["category"][] = [
   "臨時収入",
   "その他",
 ];
+
+// 日本の祝日判定
+function isJapaneseHoliday(date: Date): boolean {
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+
+  const fixedHolidays: { [key: string]: boolean } = {
+    "1-1": true,
+    "2-11": true,
+    "2-23": true,
+    "4-29": true,
+    "5-3": true,
+    "5-4": true,
+    "5-5": true,
+    "8-11": true,
+    "9-23": true,
+    "11-3": true,
+    "11-23": true,
+  };
+
+  if (fixedHolidays[`${month}-${day}`]) {
+    return true;
+  }
+
+  if (year === 2026) {
+    if (month === 1 && day === 12) return true;
+    if (month === 3 && day === 20) return true;
+    if (month === 7 && day === 20) return true;
+    if (month === 9 && day === 21) return true;
+    if (month === 10 && day === 12) return true;
+  }
+
+  if (year === 2027) {
+    if (month === 1 && day === 11) return true;
+    if (month === 3 && day === 21) return true;
+    if (month === 3 && day === 22) return true;
+    if (month === 5 && day === 3) return true;
+    if (month === 5 && day === 4) return true;
+    if (month === 5 && day === 5) return true;
+    if (month === 7 && day === 19) return true;
+    if (month === 9 && day === 20) return true;
+    if (month === 11 && day === 3) return true;
+    if (month === 11 && day === 23) return true;
+  }
+
+  return false;
+}
+
+// 平日の末日を計算
+function getBusinessEndOfMonth(year: number, month: number): number {
+  let date = new Date(year, month, 0);
+  while (
+    date.getDay() === 0 ||
+    date.getDay() === 6 ||
+    isJapaneseHoliday(date)
+  ) {
+    date.setDate(date.getDate() - 1);
+  }
+  return date.getDate();
+}
 
 export default function Home() {
   const [currentYear, setCurrentYear] = useState(2026);
@@ -62,7 +126,7 @@ export default function Home() {
     "fixed" | "variable" | "one-time"
   >("fixed");
   const [amount, setAmount] = useState("");
-  const [dueDay, setDueDay] = useState("27");
+  const [dueDay, setDueDay] = useState<string>("27");
   const [ownership, setOwnership] = useState<"common" | "husband" | "wife">(
     "common",
   );
@@ -85,8 +149,21 @@ export default function Home() {
     [],
   );
 
-  const husbandIncomes = incomes.filter((i) => i.ownership === "husband");
-  const wifeIncomes = incomes.filter((i) => i.ownership === "wife");
+  const activeSelectedYM = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
+
+  // 選択中の月に一致する収入、または日付未設定の既存データを今月分として救済して抽出
+  const currentMonthIncomes = incomes.filter((item) => {
+    if (!item.createdAt) {
+      // 過去の古いデータで createdAt が無いものは2026年10月分として扱う
+      return activeSelectedYM === "2026-10";
+    }
+    return item.createdAt === activeSelectedYM;
+  });
+
+  const husbandIncomes = currentMonthIncomes.filter(
+    (i) => i.ownership === "husband",
+  );
+  const wifeIncomes = currentMonthIncomes.filter((i) => i.ownership === "wife");
 
   const husbandIncomeTotal = husbandIncomes.reduce(
     (sum, item) => sum + item.amount,
@@ -112,6 +189,13 @@ export default function Home() {
     if (localExpenses) {
       try {
         setExpenses(JSON.parse(localExpenses));
+      } catch (e) {}
+    }
+
+    const localIncomes = localStorage.getItem("app_incomes");
+    if (localIncomes) {
+      try {
+        setIncomes(JSON.parse(localIncomes));
       } catch (e) {}
     }
 
@@ -141,7 +225,10 @@ export default function Home() {
           incSnapshot.forEach((docItem) => {
             incItems.push({ id: docItem.id, ...docItem.data() } as IncomeEntry);
           });
-          setIncomes(incItems);
+          if (incItems.length > 0) {
+            setIncomes(incItems);
+            localStorage.setItem("app_incomes", JSON.stringify(incItems));
+          }
         }
       } catch (e) {
         console.warn("オフラインモードで動作中:", e);
@@ -173,22 +260,24 @@ export default function Home() {
     e.preventDefault();
     if (!title) return;
 
-    const currentYM = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
+    const parsedDueDay = dueDay === "end" ? "end" : Number(dueDay);
 
-    const newItem = {
+    const newItem: ExpenseItem = {
+      id: "",
       title,
       expenseType,
       amount: Number(amount) || 0,
-      dueDay: Number(dueDay),
+      dueDay: parsedDueDay,
       ownership,
       confirmDay: expenseType === "variable" ? Number(confirmDay) : null,
-      createdAt: currentYM,
+      createdAt: activeSelectedYM,
     };
 
     try {
       if (db) {
         const docRef = await addDoc(collection(db, "expenses"), newItem);
-        const updated = [...expenses, { id: docRef.id, ...newItem }];
+        const savedItem = { ...newItem, id: docRef.id };
+        const updated = [...expenses, savedItem];
         setExpenses(updated);
         localStorage.setItem("app_expenses", JSON.stringify(updated));
       }
@@ -202,7 +291,7 @@ export default function Home() {
   };
 
   const handleDeleteExpenseItem = async (id: string) => {
-    if (!confirm("本当にこの単発の支払いを削除しますか？")) return;
+    if (!confirm("本当にこの支払いを削除しますか？")) return;
     try {
       if (db) {
         await deleteDoc(doc(db, "expenses", id));
@@ -210,8 +299,6 @@ export default function Home() {
       const updated = expenses.filter((item) => item.id !== id);
       setExpenses(updated);
       localStorage.setItem("app_expenses", JSON.stringify(updated));
-
-      // プレビュー中の内訳リスト側も更新
       setSelectedDayExpenses(
         selectedDayExpenses.filter((item) => item.id !== id),
       );
@@ -220,11 +307,22 @@ export default function Home() {
     }
   };
 
-  const activeSelectedYM = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
   const currentMonthFilteredExpenses = expenses.filter((item) => {
-    if (item.expenseType === "variable" || item.expenseType === "one-time") {
+    if (item.expenseType === "one-time") {
       return item.createdAt === activeSelectedYM && item.amount > 0;
     }
+
+    if (item.expenseType === "variable" && (!item.amount || item.amount <= 0)) {
+      return false;
+    }
+
+    if (item.startYM && activeSelectedYM < item.startYM) {
+      return false;
+    }
+    if (item.endYM && activeSelectedYM > item.endYM) {
+      return false;
+    }
+
     return true;
   });
 
@@ -238,7 +336,9 @@ export default function Home() {
 
   const handleOpenIncomeModal = (target: "husband" | "wife") => {
     setIncomeModalTarget(target);
-    const initialList = incomes.filter((i) => i.ownership === target);
+    const initialList = currentMonthIncomes.filter(
+      (i) => i.ownership === target,
+    );
     if (initialList.length === 0) {
       setTempIncomes([
         {
@@ -247,6 +347,7 @@ export default function Home() {
           amount: 0,
           day: 25,
           ownership: target,
+          createdAt: activeSelectedYM,
         },
       ]);
     } else {
@@ -264,19 +365,21 @@ export default function Home() {
         amount: 0,
         day: 25,
         ownership: incomeModalTarget,
+        createdAt: activeSelectedYM,
       },
     ]);
   };
 
   const handleRemoveIncomeRow = async (id: string) => {
     try {
-      if (db && !id.startsWith("17")) {
+      if (db && !id.startsWith("17") && id.length > 15) {
         await deleteDoc(doc(db, "incomes", id));
       }
     } catch (e) {
       console.error(e);
     }
-    setTempIncomes(tempIncomes.filter((item) => item.id !== id));
+    const updatedTemp = tempIncomes.filter((item) => item.id !== id);
+    setTempIncomes(updatedTemp);
   };
 
   const handleIncomeChange = (
@@ -306,19 +409,24 @@ export default function Home() {
 
     try {
       if (db) {
-        const savedIncomes = [
-          ...incomes.filter((i) => i.ownership !== incomeModalTarget),
-        ];
+        const otherIncomes = incomes.filter((i) => {
+          const iYM = i.createdAt || "2026-10";
+          return !(
+            i.ownership === incomeModalTarget && iYM === activeSelectedYM
+          );
+        });
 
-        const currentDbItems = incomes.filter(
-          (i) => i.ownership === incomeModalTarget,
-        );
-        const tempIds = tempIncomes.map((t) => t.id);
-        for (const dbItem of currentDbItems) {
-          if (!tempIds.includes(dbItem.id)) {
+        const oldTargetDbItems = incomes.filter((i) => {
+          const iYM = i.createdAt || "2026-10";
+          return i.ownership === incomeModalTarget && iYM === activeSelectedYM;
+        });
+        for (const dbItem of oldTargetDbItems) {
+          if (dbItem.id.length > 15 && !dbItem.id.includes("-")) {
             await deleteDoc(doc(db, "incomes", dbItem.id));
           }
         }
+
+        const savedIncomesList = [...otherIncomes];
 
         for (const item of tempIncomes) {
           if (item.amount > 0) {
@@ -327,20 +435,16 @@ export default function Home() {
               amount: item.amount,
               day: item.day || 1,
               ownership: incomeModalTarget,
+              createdAt: activeSelectedYM,
             };
 
-            if (item.id.length > 15 && !item.id.includes("-")) {
-              savedIncomes.push(item);
-            } else {
-              const docRef = await addDoc(
-                collection(db, "incomes"),
-                incomeData,
-              );
-              savedIncomes.push({ id: docRef.id, ...incomeData });
-            }
+            const docRef = await addDoc(collection(db, "incomes"), incomeData);
+            savedIncomesList.push({ id: docRef.id, ...incomeData });
           }
         }
-        setIncomes(savedIncomes);
+
+        setIncomes(savedIncomesList);
+        localStorage.setItem("app_incomes", JSON.stringify(savedIncomesList));
       }
     } catch (e) {
       console.error(e);
@@ -361,14 +465,22 @@ export default function Home() {
   currentMonthFilteredExpenses.forEach((item) => {
     let dateStr = "";
     if (item.expenseType === "variable" || item.expenseType === "one-time") {
-      const formattedDay = String(item.dueDay).padStart(2, "0");
+      const dayNum =
+        item.dueDay === "end"
+          ? getBusinessEndOfMonth(currentYear, currentMonth)
+          : Number(item.dueDay);
+      const formattedDay = String(dayNum).padStart(2, "0");
       const formattedMonth = String(currentMonth).padStart(2, "0");
       dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
     } else {
+      const targetDay =
+        item.dueDay === "end"
+          ? getBusinessEndOfMonth(currentYear, currentMonth)
+          : Number(item.dueDay);
       const actualDate = getActualWithdrawalDate(
         currentYear,
         currentMonth,
-        item.dueDay,
+        targetDay,
       );
       dateStr = formatDateToString(actualDate);
     }
@@ -380,7 +492,7 @@ export default function Home() {
   });
 
   const incomesByDate: { [key: string]: IncomeEntry[] } = {};
-  incomes.forEach((item) => {
+  currentMonthIncomes.forEach((item) => {
     const formattedDay = String(item.day || 1).padStart(2, "0");
     const formattedMonth = String(currentMonth).padStart(2, "0");
     const dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
@@ -546,6 +658,13 @@ export default function Home() {
 
                 {Array.from({ length: totalDays }).map((_, index) => {
                   const day = index + 1;
+                  const targetDate = new Date(
+                    currentYear,
+                    currentMonth - 1,
+                    day,
+                  );
+                  const isHoliday = isJapaneseHoliday(targetDate);
+
                   const formattedDay = String(day).padStart(2, "0");
                   const formattedMonth = String(currentMonth).padStart(2, "0");
                   const dateKey = `${currentYear}-${formattedMonth}-${formattedDay}`;
@@ -553,6 +672,13 @@ export default function Home() {
                   const dayExpenses = expensesByDate[dateKey] || [];
                   const dayIncomes = incomesByDate[dateKey] || [];
                   const dayOfWeek = (firstDay + index) % 7;
+
+                  let dateColor = "#79665A";
+                  if (dayOfWeek === 0 || isHoliday) {
+                    dateColor = "#F28FA4";
+                  } else if (dayOfWeek === 6) {
+                    dateColor = "#78B4E2";
+                  }
 
                   return (
                     <div
@@ -564,14 +690,7 @@ export default function Home() {
                       <div className="flex justify-between items-center w-full">
                         <span
                           className="text-[11px] font-bold"
-                          style={{
-                            color:
-                              dayOfWeek === 0
-                                ? "#F28FA4"
-                                : dayOfWeek === 6
-                                  ? "#78B4E2"
-                                  : "#79665A",
-                          }}
+                          style={{ color: dateColor }}
                         >
                           {day}
                         </span>
@@ -726,6 +845,7 @@ export default function Home() {
               className="font-bold text-sm text-center"
               style={{ color: "#79665A" }}
             >
+              {currentYear}年{currentMonth}月 -{" "}
               {incomeModalTarget === "husband" ? husbandName : wifeName}{" "}
               の収入設定
             </h3>
@@ -1054,20 +1174,34 @@ export default function Home() {
                     className="block text-[11px] font-semibold mb-1"
                     style={{ color: "#A99A8E" }}
                   >
-                    {expenseType === "one-time"
-                      ? "支払日 (日)"
-                      : "引き落とし日 (日)"}
+                    {expenseType === "one-time" ? "支払日" : "引き落とし日"}
                   </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="31"
-                    value={dueDay}
-                    onChange={(e) => setDueDay(e.target.value)}
-                    className="w-full rounded-xl p-2 text-base outline-none bg-white"
-                    style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
-                    required
-                  />
+                  {expenseType === "one-time" ? (
+                    <input
+                      type="number"
+                      min="1"
+                      max="31"
+                      value={dueDay}
+                      onChange={(e) => setDueDay(e.target.value)}
+                      className="w-full rounded-xl p-2 text-base outline-none bg-white"
+                      style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                      required
+                    />
+                  ) : (
+                    <select
+                      value={dueDay}
+                      onChange={(e) => setDueDay(e.target.value)}
+                      className="w-full rounded-xl p-2 text-base outline-none bg-white"
+                      style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                    >
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                        <option key={d} value={String(d)}>
+                          {d}日
+                        </option>
+                      ))}
+                      <option value="end">末日</option>
+                    </select>
+                  )}
                 </div>
               </div>
 

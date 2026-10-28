@@ -21,14 +21,17 @@ interface DailyRecord {
   memo: string;
 }
 
-interface FixedExpense {
+interface ExpenseItem {
   id: string;
   title: string;
+  expenseType?: "fixed" | "variable" | "one-time";
   amount: number;
-  dueDay: number;
+  dueDay: number | "end";
   ownership: "common" | "husband" | "wife";
-  expenseType: "fixed" | "variable";
-  createdAt?: string; // "YYYY-MM"
+  confirmDay?: number | null;
+  startYM?: string;
+  endYM?: string;
+  createdAt?: string;
 }
 
 interface CategoryItem {
@@ -52,7 +55,7 @@ export default function AnalysisPage() {
   ]);
 
   const [records, setRecords] = useState<DailyRecord[]>([]);
-  const [expenses, setExpenses] = useState<FixedExpense[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
 
   const [selectedYearMonth, setSelectedYearMonth] = useState("2026-10");
 
@@ -102,12 +105,12 @@ export default function AnalysisPage() {
           setRecords(loadedRecords);
 
           const expenseSnap = await getDocs(collection(db, "expenses"));
-          const loadedExpenses: FixedExpense[] = [];
+          const loadedExpenses: ExpenseItem[] = [];
           expenseSnap.forEach((docItem) => {
             loadedExpenses.push({
               id: docItem.id,
               ...docItem.data(),
-            } as FixedExpense);
+            } as ExpenseItem);
           });
           if (loadedExpenses.length > 0) {
             setExpenses(loadedExpenses);
@@ -156,15 +159,31 @@ export default function AnalysisPage() {
 
   const [displayYear, displayMonth] = selectedYearMonth.split("-");
 
+  // 月画面と完全に同じ月ごとの引き落とし・支出フィルターロジック
   const getBreakdownForMonth = (ym: string) => {
     const monthRecords = records.filter(
       (r) => r.dateStr && r.dateStr.startsWith(ym),
     );
 
-    const monthExpenses = expenses.filter((ex) => {
-      if (ex.expenseType === "variable") {
-        return ex.createdAt === ym && ex.amount > 0;
+    const monthFilteredExpenses = expenses.filter((item) => {
+      if (item.expenseType === "one-time") {
+        return item.createdAt === ym && item.amount > 0;
       }
+
+      if (
+        item.expenseType === "variable" &&
+        (!item.amount || item.amount <= 0)
+      ) {
+        return false;
+      }
+
+      if (item.startYM && ym < item.startYM) {
+        return false;
+      }
+      if (item.endYM && ym > item.endYM) {
+        return false;
+      }
+
       return true;
     });
 
@@ -172,7 +191,7 @@ export default function AnalysisPage() {
     let husbandExpenseTotal = 0;
     let wifeExpenseTotal = 0;
 
-    monthExpenses.forEach((ex) => {
+    monthFilteredExpenses.forEach((ex) => {
       if (ex.ownership === "common")
         commonExpenseTotal += Number(ex.amount) || 0;
       if (ex.ownership === "husband")
@@ -309,7 +328,6 @@ export default function AnalysisPage() {
                   className="w-3.5 h-3.5"
                   style={{ color: "#A99A8E" }}
                 />
-                {/* 画面拡大を防ぐため text-base (16px) を適用 */}
                 <select
                   value={selectedYearMonth}
                   onChange={(e) => setSelectedYearMonth(e.target.value)}
