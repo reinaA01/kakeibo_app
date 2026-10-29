@@ -401,7 +401,7 @@ export default function WeekPage() {
                     className="text-[11px] font-medium"
                     style={{ color: "#79665A" }}
                   >
-                    今週の残り
+                    今月の残り
                   </div>
                   <div className="flex justify-center items-center gap-2 my-0.5">
                     <ChevronLeft

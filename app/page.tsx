@@ -43,7 +43,7 @@ interface IncomeEntry {
   amount: number;
   day: number;
   ownership: "husband" | "wife";
-  createdAt?: string; // 登録された年月 ("YYYY-MM")
+  createdAt?: string;
 }
 
 const INCOME_CATEGORIES: IncomeEntry["category"][] = [
@@ -149,12 +149,14 @@ export default function Home() {
     [],
   );
 
+  const [expenseDetailTarget, setExpenseDetailTarget] = useState<
+    "husband" | "wife" | null
+  >(null);
+
   const activeSelectedYM = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
 
-  // 選択中の月に一致する収入、または日付未設定の既存データを今月分として救済して抽出
   const currentMonthIncomes = incomes.filter((item) => {
     if (!item.createdAt) {
-      // 過去の古いデータで createdAt が無いものは2026年10月分として扱う
       return activeSelectedYM === "2026-10";
     }
     return item.createdAt === activeSelectedYM;
@@ -238,6 +240,26 @@ export default function Home() {
     fetchData();
   }, []);
 
+  // プラスボタンを押して追加モーダルを開くときに、当日の日付（または選択中の月の日付）を初期セットする関数
+  const handleOpenAddModal = () => {
+    const now = new Date();
+    // 現在選択している年月と今日の年カレンダーが一致していれば今日の日付、違っていればその月の1日（または27日など）をデフォルトにする
+    if (
+      now.getFullYear() === currentYear &&
+      now.getMonth() + 1 === currentMonth
+    ) {
+      setDueDay(String(now.getDate()));
+    } else {
+      setDueDay("27");
+    }
+    setTitle("");
+    setAmount("");
+    setExpenseType("fixed");
+    setOwnership("common");
+    setConfirmDay("20");
+    setIsModalOpen(true);
+  };
+
   const handlePrevMonth = () => {
     if (currentMonth === 1) {
       setCurrentYear(currentYear - 1);
@@ -262,8 +284,7 @@ export default function Home() {
 
     const parsedDueDay = dueDay === "end" ? "end" : Number(dueDay);
 
-    const newItem: ExpenseItem = {
-      id: "",
+    const newItemWithoutId = {
       title,
       expenseType,
       amount: Number(amount) || 0,
@@ -275,8 +296,14 @@ export default function Home() {
 
     try {
       if (db) {
-        const docRef = await addDoc(collection(db, "expenses"), newItem);
-        const savedItem = { ...newItem, id: docRef.id };
+        const docRef = await addDoc(
+          collection(db, "expenses"),
+          newItemWithoutId,
+        );
+        const savedItem: ExpenseItem = {
+          id: docRef.id,
+          ...newItemWithoutId,
+        } as ExpenseItem;
         const updated = [...expenses, savedItem];
         setExpenses(updated);
         localStorage.setItem("app_expenses", JSON.stringify(updated));
@@ -334,6 +361,13 @@ export default function Home() {
     .filter((e) => e.ownership === "wife")
     .reduce((sum, item) => sum + item.amount, 0);
 
+  const husbandExpenseList = currentMonthFilteredExpenses.filter(
+    (e) => e.ownership === "husband",
+  );
+  const wifeExpenseList = currentMonthFilteredExpenses.filter(
+    (e) => e.ownership === "wife",
+  );
+
   const handleOpenIncomeModal = (target: "husband" | "wife") => {
     setIncomeModalTarget(target);
     const initialList = currentMonthIncomes.filter(
@@ -342,7 +376,7 @@ export default function Home() {
     if (initialList.length === 0) {
       setTempIncomes([
         {
-          id: Date.now().toString(),
+          id: `temp-${Date.now()}-1`,
           category: "給与",
           amount: 0,
           day: 25,
@@ -360,7 +394,7 @@ export default function Home() {
     setTempIncomes([
       ...tempIncomes,
       {
-        id: Date.now().toString(),
+        id: `temp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         category: "給与",
         amount: 0,
         day: 25,
@@ -372,7 +406,7 @@ export default function Home() {
 
   const handleRemoveIncomeRow = async (id: string) => {
     try {
-      if (db && !id.startsWith("17") && id.length > 15) {
+      if (db && !id.startsWith("temp-") && id.length > 15) {
         await deleteDoc(doc(db, "incomes", id));
       }
     } catch (e) {
@@ -421,7 +455,11 @@ export default function Home() {
           return i.ownership === incomeModalTarget && iYM === activeSelectedYM;
         });
         for (const dbItem of oldTargetDbItems) {
-          if (dbItem.id.length > 15 && !dbItem.id.includes("-")) {
+          if (
+            dbItem.id &&
+            !dbItem.id.startsWith("temp-") &&
+            dbItem.id.length > 10
+          ) {
             await deleteDoc(doc(db, "incomes", dbItem.id));
           }
         }
@@ -528,7 +566,7 @@ export default function Home() {
               <span>家計簿</span>
             </div>
             <button
-              onClick={() => setIsModalOpen(true)}
+              onClick={handleOpenAddModal}
               className="w-8 h-8 text-white rounded-full flex items-center justify-center shadow-md transition cursor-pointer"
               style={{ backgroundColor: "#F28FA4" }}
             >
@@ -562,7 +600,8 @@ export default function Home() {
 
             <div className="grid grid-cols-2 gap-2.5 w-full">
               <div
-                className="p-3 rounded-xl shadow-sm text-center w-full"
+                onClick={() => setExpenseDetailTarget("husband")}
+                className="p-3 rounded-xl shadow-sm text-center w-full transition cursor-pointer hover:opacity-90"
                 style={{
                   backgroundColor: "#EAF3FA",
                   border: "1px solid #EAE3DD",
@@ -590,7 +629,8 @@ export default function Home() {
               </div>
 
               <div
-                className="p-3 rounded-xl shadow-sm text-center w-full"
+                onClick={() => setExpenseDetailTarget("wife")}
+                className="p-3 rounded-xl shadow-sm text-center w-full transition cursor-pointer hover:opacity-90"
                 style={{
                   backgroundColor: "#FCE9ED",
                   border: "1px solid #EAE3DD",
@@ -697,9 +737,9 @@ export default function Home() {
                       </div>
 
                       <div className="space-y-0.5 overflow-hidden w-full my-auto">
-                        {dayIncomes.map((inc) => (
+                        {dayIncomes.map((inc, incIdx) => (
                           <div
-                            key={inc.id}
+                            key={inc.id || `inc-${incIdx}`}
                             className="text-[9px] px-0.5 py-0.5 rounded-md leading-none text-center font-extrabold w-full truncate"
                             style={{
                               backgroundColor: "#EEF5EE",
@@ -709,7 +749,7 @@ export default function Home() {
                             +¥{inc.amount.toLocaleString()}
                           </div>
                         ))}
-                        {dayExpenses.map((item) => {
+                        {dayExpenses.map((item, itemIdx) => {
                           let bgColor = "#F5F2EF";
                           let textColor = "#79665A";
                           if (item.ownership === "husband") {
@@ -722,7 +762,7 @@ export default function Home() {
 
                           return (
                             <div
-                              key={item.id}
+                              key={item.id || `exp-${itemIdx}`}
                               className="text-[9px] px-0.5 py-0.5 rounded-md leading-none text-center font-extrabold w-full truncate"
                               style={{
                                 backgroundColor: bgColor,
@@ -829,6 +869,84 @@ export default function Home() {
         <BottomNav />
       </div>
 
+      {expenseDetailTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div
+            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-3 relative"
+            style={{ border: "1px solid #EAE3DD" }}
+          >
+            <button
+              onClick={() => setExpenseDetailTarget(null)}
+              className="absolute top-4 right-4 p-1 text-gray-400 hover:text-gray-600 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <h3
+              className="font-bold text-sm text-center"
+              style={{ color: "#79665A" }}
+            >
+              {currentYear}年{currentMonth}月 -{" "}
+              {expenseDetailTarget === "husband" ? husbandName : wifeName}{" "}
+              の引き落とし内訳
+            </h3>
+
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {(expenseDetailTarget === "husband"
+                ? husbandExpenseList
+                : wifeExpenseList
+              ).length === 0 ? (
+                <p className="text-center text-gray-400 py-4 text-xs">
+                  今月の引き落とし項目はありません。
+                </p>
+              ) : (
+                (expenseDetailTarget === "husband"
+                  ? husbandExpenseList
+                  : wifeExpenseList
+                ).map((item, idx) => {
+                  return (
+                    <div
+                      key={item.id || `exp-detail-${idx}`}
+                      className="p-2.5 rounded-xl flex items-center justify-between bg-white"
+                      style={{ border: "1px solid #EAE3DD" }}
+                    >
+                      <div>
+                        <div
+                          className="font-bold text-xs"
+                          style={{ color: "#79665A" }}
+                        >
+                          {item.title}
+                        </div>
+                        <div
+                          className="text-[10px]"
+                          style={{ color: "#A99A8E" }}
+                        >
+                          引落日:{" "}
+                          {item.dueDay === "end" ? "末日" : `${item.dueDay}日`}
+                        </div>
+                      </div>
+                      <div
+                        className="font-extrabold text-sm"
+                        style={{ color: "#79665A" }}
+                      >
+                        -¥ {item.amount.toLocaleString()}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <button
+              onClick={() => setExpenseDetailTarget(null)}
+              className="w-full py-2 rounded-xl font-bold text-xs text-white shadow-md cursor-pointer"
+              style={{ backgroundColor: "#F28FA4" }}
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      )}
+
       {incomeModalTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div
@@ -852,9 +970,9 @@ export default function Home() {
 
             <form onSubmit={handleSaveIncome} className="space-y-3">
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                {tempIncomes.map((item) => (
+                {tempIncomes.map((item, idx) => (
                   <div
-                    key={item.id}
+                    key={item.id || `temp-inc-${idx}`}
                     className="p-2 rounded-xl border border-[#EAE3DD] space-y-2 relative"
                   >
                     <div className="flex gap-2">
@@ -978,9 +1096,9 @@ export default function Home() {
                 </p>
               ) : (
                 <>
-                  {selectedDayIncomes.map((item) => (
+                  {selectedDayIncomes.map((item, idx) => (
                     <div
-                      key={item.id}
+                      key={item.id || `day-inc-${idx}`}
                       className="p-2.5 rounded-xl flex items-center justify-between bg-[#EEF5EE]"
                       style={{ border: "1px solid #EAE3DD" }}
                     >
@@ -1008,9 +1126,9 @@ export default function Home() {
                       </div>
                     </div>
                   ))}
-                  {selectedDayExpenses.map((item) => (
+                  {selectedDayExpenses.map((item, idx) => (
                     <div
-                      key={item.id}
+                      key={item.id || `day-exp-${idx}`}
                       className="p-2.5 rounded-xl flex items-center justify-between bg-white"
                       style={{ border: "1px solid #EAE3DD" }}
                     >
