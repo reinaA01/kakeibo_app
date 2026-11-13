@@ -123,9 +123,9 @@ function getBusinessEndOfMonth(year: number, month: number): number {
 }
 
 export default function Home() {
-  const now = new Date();
-  const [currentYear, setCurrentYear] = useState(now.getFullYear());
-  const [currentMonth, setCurrentMonth] = useState(now.getMonth() + 1);
+  // ビルドエラーを防ぐため、初期値は安全な固定値（2026年11月など）にしておきます
+  const [currentYear, setCurrentYear] = useState(2026);
+  const [currentMonth, setCurrentMonth] = useState(11);
 
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
@@ -188,6 +188,11 @@ export default function Home() {
   const totalIncome = husbandIncomeTotal + wifeIncomeTotal;
 
   useEffect(() => {
+    // アプリがブラウザで開かれた（マウントされた）後に現在の日付を設定する（サーバービルド対策）
+    const now = new Date();
+    setCurrentYear(now.getFullYear());
+    setCurrentMonth(now.getMonth() + 1);
+
     const localConfig = localStorage.getItem("app_config");
     if (localConfig) {
       try {
@@ -307,7 +312,7 @@ export default function Home() {
       dueDay: parsedDueDay,
       ownership,
       confirmDay: expenseType === "variable" ? Number(confirmDay) : null,
-      createdAt: activeSelectedYM, // 登録した月の年月を保存
+      createdAt: activeSelectedYM,
     };
 
     try {
@@ -350,7 +355,6 @@ export default function Home() {
     }
   };
 
-  // 【重要修正】単発（one-time）およびcreatedAtを持つ項目は、その登録月（activeSelectedYM）にのみ厳密に表示する
   const currentMonthFilteredExpenses = expenses.filter((item) => {
     const itemYM = item.createdAt || activeSelectedYM;
 
