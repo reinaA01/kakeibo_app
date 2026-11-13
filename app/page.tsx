@@ -123,7 +123,6 @@ function getBusinessEndOfMonth(year: number, month: number): number {
 }
 
 export default function Home() {
-  // ビルドエラーを防ぐため、初期値は安全な固定値（2026年11月など）にしておきます
   const [currentYear, setCurrentYear] = useState(2026);
   const [currentMonth, setCurrentMonth] = useState(11);
 
@@ -167,6 +166,7 @@ export default function Home() {
 
   const activeSelectedYM = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
 
+  // 【修正】収入も登録された月（createdAt）に厳密に一致するものだけを表示するように修正
   const currentMonthIncomes = incomes.filter((item) => {
     const itemYM = item.createdAt || activeSelectedYM;
     return itemYM === activeSelectedYM;
@@ -188,7 +188,6 @@ export default function Home() {
   const totalIncome = husbandIncomeTotal + wifeIncomeTotal;
 
   useEffect(() => {
-    // アプリがブラウザで開かれた（マウントされた）後に現在の日付を設定する（サーバービルド対策）
     const now = new Date();
     setCurrentYear(now.getFullYear());
     setCurrentMonth(now.getMonth() + 1);
@@ -496,7 +495,7 @@ export default function Home() {
               amount: item.amount,
               day: item.day || 1,
               ownership: incomeModalTarget,
-              createdAt: activeSelectedYM,
+              createdAt: activeSelectedYM, // 登録した年月を確実に保存
             };
 
             const docRef = await addDoc(collection(db, "incomes"), incomeData);
@@ -522,6 +521,7 @@ export default function Home() {
   const totalDays = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
 
+  // 【修正】固定費などの自動反映引き落としについて、土日祝を考慮した「翌営業日（getActualWithdrawalDate）」にカレンダー反映するロジックを復元
   const expensesByDate: { [key: string]: ExpenseItem[] } = {};
   currentMonthFilteredExpenses.forEach((item) => {
     let dateStr = "";
@@ -529,9 +529,21 @@ export default function Home() {
       item.dueDay === "end"
         ? getBusinessEndOfMonth(currentYear, currentMonth)
         : Number(item.dueDay);
-    const formattedDay = String(targetDay || 1).padStart(2, "0");
-    const formattedMonth = String(currentMonth).padStart(2, "0");
-    dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
+
+    if (item.expenseType === "fixed") {
+      // 固定費は土日祝を考慮した翌営業日（または実際の引き落とし日）に反映
+      const actualDate = getActualWithdrawalDate(
+        currentYear,
+        currentMonth,
+        targetDay || 27,
+      );
+      dateStr = formatDateToString(actualDate);
+    } else {
+      // 変動費や単発は指定された日付通りに反映
+      const formattedDay = String(targetDay || 1).padStart(2, "0");
+      const formattedMonth = String(currentMonth).padStart(2, "0");
+      dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
+    }
 
     if (!expensesByDate[dateStr]) {
       expensesByDate[dateStr] = [];
