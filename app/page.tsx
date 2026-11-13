@@ -166,10 +166,13 @@ export default function Home() {
 
   const activeSelectedYM = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
 
-  // 【修正】収入も登録された月（createdAt）に厳密に一致するものだけを表示するように修正
+  // 【厳格な修正】収入データのcreatedAtが未設定（古いデータなど）の場合でも、勝手に他月に漏れ出さないよう、存在する場合のみ年月一致を厳密にチェックする
   const currentMonthIncomes = incomes.filter((item) => {
-    const itemYM = item.createdAt || activeSelectedYM;
-    return itemYM === activeSelectedYM;
+    if (!item.createdAt) {
+      // 登録月データがない古いデータはデフォルトで10月分とする（または非表示にする）
+      return activeSelectedYM === "2026-10";
+    }
+    return item.createdAt === activeSelectedYM;
   });
 
   const husbandIncomes = currentMonthIncomes.filter(
@@ -495,7 +498,7 @@ export default function Home() {
               amount: item.amount,
               day: item.day || 1,
               ownership: incomeModalTarget,
-              createdAt: activeSelectedYM, // 登録した年月を確実に保存
+              createdAt: activeSelectedYM,
             };
 
             const docRef = await addDoc(collection(db, "incomes"), incomeData);
@@ -521,7 +524,6 @@ export default function Home() {
   const totalDays = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
 
-  // 【修正】固定費などの自動反映引き落としについて、土日祝を考慮した「翌営業日（getActualWithdrawalDate）」にカレンダー反映するロジックを復元
   const expensesByDate: { [key: string]: ExpenseItem[] } = {};
   currentMonthFilteredExpenses.forEach((item) => {
     let dateStr = "";
@@ -531,7 +533,6 @@ export default function Home() {
         : Number(item.dueDay);
 
     if (item.expenseType === "fixed") {
-      // 固定費は土日祝を考慮した翌営業日（または実際の引き落とし日）に反映
       const actualDate = getActualWithdrawalDate(
         currentYear,
         currentMonth,
@@ -539,7 +540,6 @@ export default function Home() {
       );
       dateStr = formatDateToString(actualDate);
     } else {
-      // 変動費や単発は指定された日付通りに反映
       const formattedDay = String(targetDay || 1).padStart(2, "0");
       const formattedMonth = String(currentMonth).padStart(2, "0");
       dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
