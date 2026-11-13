@@ -62,7 +62,6 @@ const INCOME_CATEGORIES: IncomeEntry["category"][] = [
   "その他",
 ];
 
-// 日本の祝日判定
 function isJapaneseHoliday(date: Date): boolean {
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
@@ -111,7 +110,6 @@ function isJapaneseHoliday(date: Date): boolean {
   return false;
 }
 
-// 平日の末日を計算
 function getBusinessEndOfMonth(year: number, month: number): number {
   let date = new Date(year, month, 0);
   while (
@@ -125,8 +123,9 @@ function getBusinessEndOfMonth(year: number, month: number): number {
 }
 
 export default function Home() {
-  const [currentYear, setCurrentYear] = useState(2026);
-  const [currentMonth, setCurrentMonth] = useState(11);
+  const now = new Date();
+  const [currentYear, setCurrentYear] = useState(now.getFullYear());
+  const [currentMonth, setCurrentMonth] = useState(now.getMonth() + 1);
 
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
@@ -169,10 +168,8 @@ export default function Home() {
   const activeSelectedYM = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
 
   const currentMonthIncomes = incomes.filter((item) => {
-    if (!item.createdAt) {
-      return activeSelectedYM === "2026-11";
-    }
-    return item.createdAt === activeSelectedYM;
+    const itemYM = item.createdAt || activeSelectedYM;
+    return itemYM === activeSelectedYM;
   });
 
   const husbandIncomes = currentMonthIncomes.filter(
@@ -191,10 +188,6 @@ export default function Home() {
   const totalIncome = husbandIncomeTotal + wifeIncomeTotal;
 
   useEffect(() => {
-    const now = new Date();
-    setCurrentYear(now.getFullYear());
-    setCurrentMonth(now.getMonth() + 1);
-
     const localConfig = localStorage.getItem("app_config");
     if (localConfig) {
       try {
@@ -314,7 +307,7 @@ export default function Home() {
       dueDay: parsedDueDay,
       ownership,
       confirmDay: expenseType === "variable" ? Number(confirmDay) : null,
-      createdAt: activeSelectedYM,
+      createdAt: activeSelectedYM, // 登録した月の年月を保存
     };
 
     try {
@@ -357,10 +350,12 @@ export default function Home() {
     }
   };
 
-  // 変動費も固定費と同様に「金額が0より大きい」ものを集計対象にする
+  // 【重要修正】単発（one-time）およびcreatedAtを持つ項目は、その登録月（activeSelectedYM）にのみ厳密に表示する
   const currentMonthFilteredExpenses = expenses.filter((item) => {
+    const itemYM = item.createdAt || activeSelectedYM;
+
     if (item.expenseType === "one-time") {
-      return item.amount > 0;
+      return itemYM === activeSelectedYM && item.amount > 0;
     }
 
     if (item.expenseType === "variable") {
@@ -468,14 +463,14 @@ export default function Home() {
     try {
       if (db) {
         const otherIncomes = incomes.filter((i) => {
-          const iYM = i.createdAt || "2026-11";
+          const iYM = i.createdAt || activeSelectedYM;
           return !(
             i.ownership === incomeModalTarget && iYM === activeSelectedYM
           );
         });
 
         const oldTargetDbItems = incomes.filter((i) => {
-          const iYM = i.createdAt || "2026-11";
+          const iYM = i.createdAt || activeSelectedYM;
           return i.ownership === incomeModalTarget && iYM === activeSelectedYM;
         });
         for (const dbItem of oldTargetDbItems) {
@@ -523,7 +518,6 @@ export default function Home() {
   const totalDays = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
 
-  // 【重要】すべての支出（固定費・変動費・単発）を、必ず「設定された引き落とし日（dueDay）」に基づいてカレンダーの日付に割り当てる
   const expensesByDate: { [key: string]: ExpenseItem[] } = {};
   currentMonthFilteredExpenses.forEach((item) => {
     let dateStr = "";
@@ -559,7 +553,6 @@ export default function Home() {
     setSelectedDayIncomes(incomesByDate[dateKey] || []);
   };
 
-  // 【重要】負担区分（夫・妻・共通）またはカテゴリに設定されたカラーを確実に適用するスタイル生成関数
   const getExpenseStyle = (item: ExpenseItem) => {
     let color = commonColor;
     if (item.ownership === "husband") {
@@ -576,7 +569,7 @@ export default function Home() {
     }
 
     return {
-      backgroundColor: color + "22", // 透過した薄めの背景色
+      backgroundColor: color + "22",
       color: color,
     };
   };
