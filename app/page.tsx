@@ -32,6 +32,7 @@ interface ExpenseItem {
   dueDay: number | "end";
   ownership: "common" | "husband" | "wife";
   confirmDay?: number | null;
+  category?: string;
   startYM?: string;
   endYM?: string;
   createdAt?: string;
@@ -44,6 +45,13 @@ interface IncomeEntry {
   day: number;
   ownership: "husband" | "wife";
   createdAt?: string;
+}
+
+interface CategoryItem {
+  id: string;
+  name: string;
+  color: string;
+  isSystem?: boolean;
 }
 
 const INCOME_CATEGORIES: IncomeEntry["category"][] = [
@@ -117,11 +125,11 @@ function getBusinessEndOfMonth(year: number, month: number): number {
 }
 
 export default function Home() {
-  // サーバーサイドプリレンダーでのエラーを防ぐため、初期値は固定値にし、useEffectで現在日時に設定する
   const [currentYear, setCurrentYear] = useState(2026);
   const [currentMonth, setCurrentMonth] = useState(10);
 
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [expenseType, setExpenseType] = useState<
@@ -136,6 +144,9 @@ export default function Home() {
 
   const [husbandName, setHusbandName] = useState("夫");
   const [wifeName, setWifeName] = useState("妻");
+  const [husbandColor, setHusbandColor] = useState("#78B4E2");
+  const [wifeColor, setWifeColor] = useState("#F28FA4");
+  const [commonColor, setCommonColor] = useState("#C9BFB7");
 
   const [incomes, setIncomes] = useState<IncomeEntry[]>([]);
   const [incomeModalTarget, setIncomeModalTarget] = useState<
@@ -180,7 +191,6 @@ export default function Home() {
   const totalIncome = husbandIncomeTotal + wifeIncomeTotal;
 
   useEffect(() => {
-    // アプリ起動時に現在の日付を設定
     const now = new Date();
     setCurrentYear(now.getFullYear());
     setCurrentMonth(now.getMonth() + 1);
@@ -191,6 +201,10 @@ export default function Home() {
         const parsed = JSON.parse(localConfig);
         if (parsed.husbandName) setHusbandName(parsed.husbandName);
         if (parsed.wifeName) setWifeName(parsed.wifeName);
+        if (parsed.husbandColor) setHusbandColor(parsed.husbandColor);
+        if (parsed.wifeColor) setWifeColor(parsed.wifeColor);
+        if (parsed.commonColor) setCommonColor(parsed.commonColor);
+        if (parsed.categories) setCategories(parsed.categories);
       } catch (e) {}
     }
 
@@ -216,6 +230,10 @@ export default function Home() {
             const data = configSnap.data();
             if (data.husbandName) setHusbandName(data.husbandName);
             if (data.wifeName) setWifeName(data.wifeName);
+            if (data.husbandColor) setHusbandColor(data.husbandColor);
+            if (data.wifeColor) setWifeColor(data.wifeColor);
+            if (data.commonColor) setCommonColor(data.commonColor);
+            if (data.categories) setCategories(data.categories);
           }
 
           const q = query(collection(db, "expenses"), orderBy("dueDay", "asc"));
@@ -512,7 +530,7 @@ export default function Home() {
         item.dueDay === "end"
           ? getBusinessEndOfMonth(currentYear, currentMonth)
           : Number(item.dueDay);
-      const formattedDay = String(dayNum).padStart(2, "0");
+      const formattedDay = String(dayNum || 1).padStart(2, "0");
       const formattedMonth = String(currentMonth).padStart(2, "0");
       dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
     } else {
@@ -523,7 +541,7 @@ export default function Home() {
       const actualDate = getActualWithdrawalDate(
         currentYear,
         currentMonth,
-        targetDay,
+        targetDay || 27,
       );
       dateStr = formatDateToString(actualDate);
     }
@@ -550,6 +568,35 @@ export default function Home() {
     setSelectedDateStr(dateKey);
     setSelectedDayExpenses(expensesByDate[dateKey] || []);
     setSelectedDayIncomes(incomesByDate[dateKey] || []);
+  };
+
+  const getExpenseStyle = (item: ExpenseItem) => {
+    if (item.category) {
+      const matchedCat = categories.find((c) => c.name === item.category);
+      if (matchedCat) {
+        return {
+          backgroundColor: matchedCat.color + "22",
+          color: matchedCat.color,
+        };
+      }
+    }
+
+    if (item.ownership === "husband") {
+      return {
+        backgroundColor: "#EAF3FA",
+        color: husbandColor,
+      };
+    } else if (item.ownership === "wife") {
+      return {
+        backgroundColor: "#FCE9ED",
+        color: wifeColor,
+      };
+    } else {
+      return {
+        backgroundColor: "#F5F2EF",
+        color: commonColor,
+      };
+    }
   };
 
   return (
@@ -614,7 +661,7 @@ export default function Home() {
               >
                 <div
                   className="flex items-center justify-center gap-1 font-bold mb-0.5 text-xs"
-                  style={{ color: "#78B4E2" }}
+                  style={{ color: husbandColor }}
                 >
                   <User className="w-3.5 h-3.5" />
                   <span>{husbandName}</span>
@@ -643,7 +690,7 @@ export default function Home() {
               >
                 <div
                   className="flex items-center justify-center gap-1 font-bold mb-0.5 text-xs"
-                  style={{ color: "#F28FA4" }}
+                  style={{ color: wifeColor }}
                 >
                   <User className="w-3.5 h-3.5" />
                   <span>{wifeName}</span>
@@ -755,23 +802,14 @@ export default function Home() {
                           </div>
                         ))}
                         {dayExpenses.map((item, itemIdx) => {
-                          let bgColor = "#F5F2EF";
-                          let textColor = "#79665A";
-                          if (item.ownership === "husband") {
-                            bgColor = "#EAF3FA";
-                            textColor = "#78B4E2";
-                          } else if (item.ownership === "wife") {
-                            bgColor = "#FCE9ED";
-                            textColor = "#F28FA4";
-                          }
-
+                          const style = getExpenseStyle(item);
                           return (
                             <div
                               key={item.id || `exp-${itemIdx}`}
                               className="text-[9px] px-0.5 py-0.5 rounded-md leading-none text-center font-extrabold w-full truncate"
                               style={{
-                                backgroundColor: bgColor,
-                                color: textColor,
+                                backgroundColor: style.backgroundColor,
+                                color: style.color,
                               }}
                               title={`${item.title} ¥${item.amount}`}
                             >
@@ -808,7 +846,7 @@ export default function Home() {
                 >
                   <div
                     className="flex items-center justify-center gap-1 font-bold text-[11px]"
-                    style={{ color: "#78B4E2" }}
+                    style={{ color: husbandColor }}
                   >
                     <User className="w-3.5 h-3.5" />
                     <span>{husbandName}</span>
@@ -832,7 +870,7 @@ export default function Home() {
                 >
                   <div
                     className="flex items-center justify-center gap-1 font-bold text-[11px]"
-                    style={{ color: "#F28FA4" }}
+                    style={{ color: wifeColor }}
                   >
                     <User className="w-3.5 h-3.5" />
                     <span>{wifeName}</span>
