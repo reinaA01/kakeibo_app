@@ -84,6 +84,7 @@ function isJapaneseHoliday(date: Date): boolean {
     if (month === 7 && day === 20) return true;
     if (month === 9 && day === 21) return true;
     if (month === 10 && day === 12) return true;
+    if (month === 11 && day === 23) return true;
   }
 
   if (year === 2027) {
@@ -116,6 +117,7 @@ function getBusinessEndOfMonth(year: number, month: number): number {
 }
 
 export default function Home() {
+  // サーバーサイドプリレンダーでのエラーを防ぐため、初期値は固定値にし、useEffectで現在日時に設定する
   const [currentYear, setCurrentYear] = useState(2026);
   const [currentMonth, setCurrentMonth] = useState(10);
 
@@ -178,6 +180,11 @@ export default function Home() {
   const totalIncome = husbandIncomeTotal + wifeIncomeTotal;
 
   useEffect(() => {
+    // アプリ起動時に現在の日付を設定
+    const now = new Date();
+    setCurrentYear(now.getFullYear());
+    setCurrentMonth(now.getMonth() + 1);
+
     const localConfig = localStorage.getItem("app_config");
     if (localConfig) {
       try {
@@ -240,15 +247,13 @@ export default function Home() {
     fetchData();
   }, []);
 
-  // プラスボタンを押して追加モーダルを開くときに、当日の日付（または選択中の月の日付）を初期セットする関数
   const handleOpenAddModal = () => {
-    const now = new Date();
-    // 現在選択している年月と今日の年カレンダーが一致していれば今日の日付、違っていればその月の1日（または27日など）をデフォルトにする
+    const today = new Date();
     if (
-      now.getFullYear() === currentYear &&
-      now.getMonth() + 1 === currentMonth
+      today.getFullYear() === currentYear &&
+      today.getMonth() + 1 === currentMonth
     ) {
-      setDueDay(String(now.getDate()));
+      setDueDay(String(today.getDate()));
     } else {
       setDueDay("27");
     }
@@ -339,8 +344,8 @@ export default function Home() {
       return item.createdAt === activeSelectedYM && item.amount > 0;
     }
 
-    if (item.expenseType === "variable" && (!item.amount || item.amount <= 0)) {
-      return false;
+    if (item.expenseType === "variable") {
+      if (!item.amount || item.amount <= 0) return false;
     }
 
     if (item.startYM && activeSelectedYM < item.startYM) {
@@ -624,7 +629,7 @@ export default function Home() {
                   className="text-[10px] mt-0.5"
                   style={{ color: "#A99A8E" }}
                 >
-                  今月の引き落とし額
+                  今月の引き落とし額 (内訳)
                 </div>
               </div>
 
@@ -653,7 +658,7 @@ export default function Home() {
                   className="text-[10px] mt-0.5"
                   style={{ color: "#A99A8E" }}
                 >
-                  今月の引き落とし額
+                  今月の引き落とし額 (内訳)
                 </div>
               </div>
             </div>
