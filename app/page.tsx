@@ -126,7 +126,7 @@ function getBusinessEndOfMonth(year: number, month: number): number {
 
 export default function Home() {
   const [currentYear, setCurrentYear] = useState(2026);
-  const [currentMonth, setCurrentMonth] = useState(10);
+  const [currentMonth, setCurrentMonth] = useState(11);
 
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
@@ -170,7 +170,7 @@ export default function Home() {
 
   const currentMonthIncomes = incomes.filter((item) => {
     if (!item.createdAt) {
-      return activeSelectedYM === "2026-10";
+      return activeSelectedYM === "2026-11";
     }
     return item.createdAt === activeSelectedYM;
   });
@@ -357,9 +357,10 @@ export default function Home() {
     }
   };
 
+  // 変動費も固定費と同様に「金額が0より大きい」ものを集計対象にする
   const currentMonthFilteredExpenses = expenses.filter((item) => {
     if (item.expenseType === "one-time") {
-      return item.createdAt === activeSelectedYM && item.amount > 0;
+      return item.amount > 0;
     }
 
     if (item.expenseType === "variable") {
@@ -467,14 +468,14 @@ export default function Home() {
     try {
       if (db) {
         const otherIncomes = incomes.filter((i) => {
-          const iYM = i.createdAt || "2026-10";
+          const iYM = i.createdAt || "2026-11";
           return !(
             i.ownership === incomeModalTarget && iYM === activeSelectedYM
           );
         });
 
         const oldTargetDbItems = incomes.filter((i) => {
-          const iYM = i.createdAt || "2026-10";
+          const iYM = i.createdAt || "2026-11";
           return i.ownership === incomeModalTarget && iYM === activeSelectedYM;
         });
         for (const dbItem of oldTargetDbItems) {
@@ -522,29 +523,17 @@ export default function Home() {
   const totalDays = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
 
+  // 【重要】すべての支出（固定費・変動費・単発）を、必ず「設定された引き落とし日（dueDay）」に基づいてカレンダーの日付に割り当てる
   const expensesByDate: { [key: string]: ExpenseItem[] } = {};
   currentMonthFilteredExpenses.forEach((item) => {
     let dateStr = "";
-    if (item.expenseType === "variable" || item.expenseType === "one-time") {
-      const dayNum =
-        item.dueDay === "end"
-          ? getBusinessEndOfMonth(currentYear, currentMonth)
-          : Number(item.dueDay);
-      const formattedDay = String(dayNum || 1).padStart(2, "0");
-      const formattedMonth = String(currentMonth).padStart(2, "0");
-      dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
-    } else {
-      const targetDay =
-        item.dueDay === "end"
-          ? getBusinessEndOfMonth(currentYear, currentMonth)
-          : Number(item.dueDay);
-      const actualDate = getActualWithdrawalDate(
-        currentYear,
-        currentMonth,
-        targetDay || 27,
-      );
-      dateStr = formatDateToString(actualDate);
-    }
+    const targetDay =
+      item.dueDay === "end"
+        ? getBusinessEndOfMonth(currentYear, currentMonth)
+        : Number(item.dueDay);
+    const formattedDay = String(targetDay || 1).padStart(2, "0");
+    const formattedMonth = String(currentMonth).padStart(2, "0");
+    dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
 
     if (!expensesByDate[dateStr]) {
       expensesByDate[dateStr] = [];
@@ -570,33 +559,26 @@ export default function Home() {
     setSelectedDayIncomes(incomesByDate[dateKey] || []);
   };
 
+  // 【重要】負担区分（夫・妻・共通）またはカテゴリに設定されたカラーを確実に適用するスタイル生成関数
   const getExpenseStyle = (item: ExpenseItem) => {
+    let color = commonColor;
+    if (item.ownership === "husband") {
+      color = husbandColor;
+    } else if (item.ownership === "wife") {
+      color = wifeColor;
+    }
+
     if (item.category) {
       const matchedCat = categories.find((c) => c.name === item.category);
-      if (matchedCat) {
-        return {
-          backgroundColor: matchedCat.color + "22",
-          color: matchedCat.color,
-        };
+      if (matchedCat && matchedCat.color) {
+        color = matchedCat.color;
       }
     }
 
-    if (item.ownership === "husband") {
-      return {
-        backgroundColor: "#EAF3FA",
-        color: husbandColor,
-      };
-    } else if (item.ownership === "wife") {
-      return {
-        backgroundColor: "#FCE9ED",
-        color: wifeColor,
-      };
-    } else {
-      return {
-        backgroundColor: "#F5F2EF",
-        color: commonColor,
-      };
-    }
+    return {
+      backgroundColor: color + "22", // 透過した薄めの背景色
+      color: color,
+    };
   };
 
   return (
@@ -655,7 +637,7 @@ export default function Home() {
                 onClick={() => setExpenseDetailTarget("husband")}
                 className="p-3 rounded-xl shadow-sm text-center w-full transition cursor-pointer hover:opacity-90"
                 style={{
-                  backgroundColor: "#EAF3FA",
+                  backgroundColor: husbandColor + "15",
                   border: "1px solid #EAE3DD",
                 }}
               >
@@ -684,7 +666,7 @@ export default function Home() {
                 onClick={() => setExpenseDetailTarget("wife")}
                 className="p-3 rounded-xl shadow-sm text-center w-full transition cursor-pointer hover:opacity-90"
                 style={{
-                  backgroundColor: "#FCE9ED",
+                  backgroundColor: wifeColor + "15",
                   border: "1px solid #EAE3DD",
                 }}
               >
@@ -840,7 +822,7 @@ export default function Home() {
                   onClick={() => handleOpenIncomeModal("husband")}
                   className="p-2.5 rounded-xl text-center w-full cursor-pointer hover:opacity-90 transition"
                   style={{
-                    backgroundColor: "#EAF3FA",
+                    backgroundColor: husbandColor + "15",
                     border: "1px solid #EAE3DD",
                   }}
                 >
@@ -864,7 +846,7 @@ export default function Home() {
                   onClick={() => handleOpenIncomeModal("wife")}
                   className="p-2.5 rounded-xl text-center w-full cursor-pointer hover:opacity-90 transition"
                   style={{
-                    backgroundColor: "#FCE9ED",
+                    backgroundColor: wifeColor + "15",
                     border: "1px solid #EAE3DD",
                   }}
                 >
