@@ -3,7 +3,40 @@
 import { useState, useEffect } from "react";
 import { db, auth } from "@/lib/firebase";
 import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
-import { collection, addDoc } from "firebase/firestore";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  query,
+  where,
+  updateDoc,
+  doc,
+} from "firebase/firestore";
+
+function getNextWithdrawalYearMonth(
+  submitDate: Date,
+  dueDay: number | "end",
+): string {
+  const year = submitDate.getFullYear();
+  const month = submitDate.getMonth() + 1; // 1-12
+  const day = submitDate.getDate();
+
+  const lastDayOfCurrentMonth = new Date(year, month, 0).getDate();
+  const targetDayInCurrentMonth =
+    dueDay === "end"
+      ? lastDayOfCurrentMonth
+      : Math.min(Number(dueDay) || day, lastDayOfCurrentMonth);
+
+  // 送信日がその月の引き落とし日より後なら、次の引き落とし日は翌月になる
+  if (day > targetDayInCurrentMonth) {
+    const nextMonthDate = new Date(year, month, 1); // 翌月1日
+    return `${nextMonthDate.getFullYear()}-${String(
+      nextMonthDate.getMonth() + 1,
+    ).padStart(2, "0")}`;
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
 
 export default function LiffInputPage() {
   const [title, setTitle] = useState("電気代");
@@ -49,15 +82,67 @@ export default function LiffInputPage() {
       if (!auth.currentUser) {
         await signInAnonymously(auth);
       }
+
       if (db) {
-        await addDoc(collection(db, "expenses"), {
+        const now = new Date();
+        let configuredDueDay: number | "end" = now.getDate();
+        let configuredOwnership: "common" | "husband" | "wife" = "common";
+        let configuredConfirmDay: number | null = null;
+        let configuredCategory: string | undefined = undefined;
+        let existingDocId: string | null = null;
+
+        // 設定画面で登録済みの変動費設定（dueDayなど）を検索
+        const q = query(
+          collection(db, "expenses"),
+          where("title", "==", title),
+        );
+        const snapshot = await getDocs(q);
+
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data.expenseType === "variable") {
+            if (data.dueDay !== undefined) {
+              configuredDueDay = data.dueDay;
+            }
+            if (data.ownership) {
+              configuredOwnership = data.ownership;
+            }
+            if (data.confirmDay !== undefined) {
+              configuredConfirmDay = data.confirmDay;
+            }
+            if (data.category) {
+              configuredCategory = data.category;
+            }
+            // すでに金額が入っている確定済みデータがあればそれを更新、なければテンプレート行を更新または新規作成
+            if (!existingDocId) {
+              existingDocId = docSnap.id;
+            }
+          }
+        });
+
+        const targetYM = getNextWithdrawalYearMonth(now, configuredDueDay);
+
+        const payload: Record<string, unknown> = {
           title,
           amount: Number(amount),
-          dueDay: new Date().getDate(),
-          ownership: "common",
+          dueDay: configuredDueDay,
+          ownership: configuredOwnership,
           expenseType: "variable",
-          createdAt: new Date(),
-        });
+          createdAt: targetYM,
+        };
+
+        if (configuredConfirmDay !== null) {
+          payload.confirmDay = configuredConfirmDay;
+        }
+        if (configuredCategory) {
+          payload.category = configuredCategory;
+        }
+
+        if (existingDocId) {
+          await updateDoc(doc(db, "expenses", existingDocId), payload);
+        } else {
+          await addDoc(collection(db, "expenses"), payload);
+        }
       }
 
       setStatus("完了！");
@@ -71,6 +156,7 @@ export default function LiffInputPage() {
         }
       });
     } catch (e) {
+      console.error("変動費送信エラー:", e);
       setStatus("エラーが発生しました");
     }
   };

@@ -663,7 +663,7 @@ export default function Home() {
         ? getBusinessEndOfMonth(currentYear, currentMonth)
         : Number(item.dueDay);
 
-    if (item.expenseType === "fixed") {
+    if (item.expenseType === "fixed" || item.expenseType === "variable") {
       const actualDate = getActualWithdrawalDate(
         currentYear,
         currentMonth,
