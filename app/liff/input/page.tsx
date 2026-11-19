@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { db } from "@/lib/firebase";
+import { db, auth } from "@/lib/firebase";
+import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import { collection, addDoc } from "firebase/firestore";
 
 export default function LiffInputPage() {
@@ -26,6 +27,17 @@ export default function LiffInputPage() {
         });
       })
       .catch(() => {});
+
+    // 3. Firestoreの認証ルール（request.auth != null）を通すための匿名サインイン
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if (!currentUser) {
+        signInAnonymously(auth).catch((err) => {
+          console.error("匿名ログインエラー:", err);
+        });
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -34,6 +46,9 @@ export default function LiffInputPage() {
 
     try {
       setStatus("送信中...");
+      if (!auth.currentUser) {
+        await signInAnonymously(auth);
+      }
       if (db) {
         await addDoc(collection(db, "expenses"), {
           title,
