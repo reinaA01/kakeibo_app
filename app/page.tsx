@@ -1,7 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { db } from "@/lib/firebase";
+import { db, auth } from "@/lib/firebase";
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  User as FirebaseUser,
+} from "firebase/auth";
 import {
   collection,
   getDocs,
@@ -21,6 +27,7 @@ import {
   User,
   X,
   Trash2,
+  LogOut,
 } from "lucide-react";
 import BottomNav from "@/src/components/BottomNav";
 
@@ -122,7 +129,101 @@ function getBusinessEndOfMonth(year: number, month: number): number {
   return date.getDate();
 }
 
+function LoginScreen() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg("");
+    setLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch {
+      setErrorMsg("メールアドレスまたはパスワードが正しくありません。");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center p-4 font-sans text-xs"
+      style={{ backgroundColor: "#FFFCF9", color: "#79665A" }}
+    >
+      <form
+        onSubmit={handleLogin}
+        className="w-full max-w-sm bg-white p-6 rounded-3xl space-y-4 shadow-md"
+        style={{ border: "1px solid #EAE3DD" }}
+      >
+        <div className="flex items-center justify-center gap-1.5 text-base font-bold">
+          <HomeIcon className="w-4 h-4" style={{ color: "#F28FA4" }} />
+          <span>家計簿ログイン</span>
+        </div>
+
+        <div className="space-y-2.5">
+          <div>
+            <label
+              className="block text-[11px] font-semibold mb-1"
+              style={{ color: "#A99A8E" }}
+            >
+              メールアドレス
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="example@mail.com"
+              required
+              className="w-full rounded-xl p-2.5 text-sm outline-none bg-white"
+              style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+            />
+          </div>
+
+          <div>
+            <label
+              className="block text-[11px] font-semibold mb-1"
+              style={{ color: "#A99A8E" }}
+            >
+              パスワード
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="パスワード"
+              required
+              className="w-full rounded-xl p-2.5 text-sm outline-none bg-white"
+              style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+            />
+          </div>
+        </div>
+
+        {errorMsg && (
+          <p className="text-xs text-red-500 font-semibold text-center">
+            {errorMsg}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full py-2.5 rounded-xl text-white font-bold text-xs shadow-md cursor-pointer disabled:opacity-60"
+          style={{ backgroundColor: "#F28FA4" }}
+        >
+          {loading ? "ログイン中..." : "ログイン"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 export default function Home() {
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+
   const [currentYear, setCurrentYear] = useState(2026);
   const [currentMonth, setCurrentMonth] = useState(11);
 
@@ -195,6 +296,17 @@ export default function Home() {
     setCurrentYear(now.getFullYear());
     setCurrentMonth(now.getMonth() + 1);
 
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthChecking(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
     const localConfig = localStorage.getItem("app_config");
     if (localConfig) {
       try {
@@ -263,7 +375,26 @@ export default function Home() {
     };
 
     fetchData();
-  }, []);
+  }, [user]);
+
+  if (authChecking) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center text-xs"
+        style={{ backgroundColor: "#FFFCF9", color: "#79665A" }}
+      >
+        読み込み中...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen />;
+  }
+
+  const handleLogout = async () => {
+    await signOut(auth);
+  };
 
   const handleOpenAddModal = () => {
     const today = new Date();
@@ -608,13 +739,25 @@ export default function Home() {
               <HomeIcon className="w-4 h-4" style={{ color: "#F28FA4" }} />
               <span>家計簿</span>
             </div>
-            <button
-              onClick={handleOpenAddModal}
-              className="w-8 h-8 text-white rounded-full flex items-center justify-center shadow-md transition cursor-pointer"
-              style={{ backgroundColor: "#F28FA4" }}
-            >
-              <Plus className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="px-2.5 py-1.5 rounded-full flex items-center gap-1 text-[11px] font-semibold cursor-pointer transition hover:opacity-80"
+                style={{ backgroundColor: "#F5EFEA", color: "#79665A" }}
+                title="ログアウト"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>ログアウト</span>
+              </button>
+              <button
+                onClick={handleOpenAddModal}
+                className="w-8 h-8 text-white rounded-full flex items-center justify-center shadow-md transition cursor-pointer"
+                style={{ backgroundColor: "#F28FA4" }}
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
           </header>
 
           <main className="p-3 space-y-3 w-full">
