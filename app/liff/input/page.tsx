@@ -5,7 +5,6 @@ import { db, auth } from "@/lib/firebase";
 import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import {
   collection,
-  addDoc,
   getDocs,
   query,
   where,
@@ -85,13 +84,10 @@ export default function LiffInputPage() {
 
       if (db) {
         const now = new Date();
-        let configuredDueDay: number | "end" = now.getDate();
-        let configuredOwnership: "common" | "husband" | "wife" = "common";
-        let configuredConfirmDay: number | null = null;
-        let configuredCategory: string | undefined = undefined;
-        let existingDocId: string | null = null;
+        let targetDocId: string | null = null;
+        let configuredDueDay: number | "end" | null = null;
 
-        // 設定画面で登録済みの変動費設定（dueDayなど）を検索
+        // 設定画面で登録済みの変動費（expenseType === "variable"）を検索
         const q = query(
           collection(db, "expenses"),
           where("title", "==", title),
@@ -100,49 +96,24 @@ export default function LiffInputPage() {
 
         snapshot.forEach((docSnap) => {
           const data = docSnap.data();
-          if (data.expenseType === "variable") {
-            if (data.dueDay !== undefined) {
-              configuredDueDay = data.dueDay;
-            }
-            if (data.ownership) {
-              configuredOwnership = data.ownership;
-            }
-            if (data.confirmDay !== undefined) {
-              configuredConfirmDay = data.confirmDay;
-            }
-            if (data.category) {
-              configuredCategory = data.category;
-            }
-            // すでに金額が入っている確定済みデータがあればそれを更新、なければテンプレート行を更新または新規作成
-            if (!existingDocId) {
-              existingDocId = docSnap.id;
-            }
+          if (data.expenseType === "variable" && !targetDocId) {
+            targetDocId = docSnap.id;
+            configuredDueDay = data.dueDay ?? null;
           }
         });
 
+        if (!targetDocId || configuredDueDay === null) {
+          setStatus("設定画面に該当する変動費が見つかりません");
+          return;
+        }
+
         const targetYM = getNextWithdrawalYearMonth(now, configuredDueDay);
 
-        const payload: Record<string, unknown> = {
-          title,
+        await updateDoc(doc(db, "expenses", targetDocId), {
           amount: Number(amount),
           dueDay: configuredDueDay,
-          ownership: configuredOwnership,
-          expenseType: "variable",
           createdAt: targetYM,
-        };
-
-        if (configuredConfirmDay !== null) {
-          payload.confirmDay = configuredConfirmDay;
-        }
-        if (configuredCategory) {
-          payload.category = configuredCategory;
-        }
-
-        if (existingDocId) {
-          await updateDoc(doc(db, "expenses", existingDocId), payload);
-        } else {
-          await addDoc(collection(db, "expenses"), payload);
-        }
+        });
       }
 
       setStatus("完了！");
