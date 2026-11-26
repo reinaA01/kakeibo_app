@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { db } from "@/lib/firebase";
 import {
@@ -130,6 +130,10 @@ export default function WeekPage() {
   );
 
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
+  const [highlightedDateStr, setHighlightedDateStr] = useState<string | null>(
+    null,
+  );
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [modalDate, setModalDate] = useState("");
@@ -145,6 +149,58 @@ export default function WeekPage() {
   >(null);
 
   const [records, setRecords] = useState<DailyRecord[]>([]);
+
+  const isAnyModalOpen =
+    isAddModalOpen ||
+    selectedDateForList !== null ||
+    selectedCategoryForList !== null;
+
+  useEffect(() => {
+    if (!isAnyModalOpen) return;
+
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevBodyTouchAction = document.body.style.touchAction;
+
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+
+    return () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.body.style.touchAction = prevBodyTouchAction;
+    };
+  }, [isAnyModalOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleJumpToToday = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    const todayFullStr = `${y}-${m}-${d}`;
+
+    setCurrentDate(now);
+
+    if (highlightTimerRef.current) {
+      clearTimeout(highlightTimerRef.current);
+    }
+    setHighlightedDateStr(null);
+    requestAnimationFrame(() => {
+      setHighlightedDateStr(todayFullStr);
+      highlightTimerRef.current = setTimeout(() => {
+        setHighlightedDateStr(null);
+      }, 1000);
+    });
+  };
 
   useEffect(() => {
     setCurrentDate(new Date());
@@ -226,7 +282,6 @@ export default function WeekPage() {
 
   const currentMonday = getMondayOfCurrentWeek(currentDate);
 
-  // 週の月曜日が属する年月文字列 (例: "2026-10") を取得
   const targetYear = currentMonday.getFullYear();
   const targetMonth = currentMonday.getMonth() + 1;
   const targetYM = `${targetYear}-${String(targetMonth).padStart(2, "0")}`;
@@ -330,17 +385,33 @@ export default function WeekPage() {
   sunday.setDate(currentMonday.getDate() + 6);
   const weekRangeStr = `${currentMonday.getMonth() + 1}月${currentMonday.getDate()}日（月）〜 ${sunday.getMonth() + 1}月${sunday.getDate()}日（日）`;
 
+  const computedWeeklyBudget = weekDaysConfig.reduce((weekSum, _, index) => {
+    const d = new Date(currentMonday);
+    d.setDate(currentMonday.getDate() + index);
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    const daysInMonth = new Date(y, m, 0).getDate();
+
+    const dailySum = customCategoriesOnly.reduce((catSum, cat) => {
+      const budget =
+        categoryBudgets[cat.name] !== undefined ? categoryBudgets[cat.name] : 0;
+      const dailyAmount = Math.floor(budget / daysInMonth);
+      return catSum + dailyAmount;
+    }, 0);
+
+    return weekSum + dailySum;
+  }, 0);
+
   const totalWeeklySpent = sampleWeeklyData.reduce(
     (sum, item) => sum + item.amount,
     0,
   );
-  const remainingBudget = weeklyBudget - totalWeeklySpent;
+  const remainingBudget = computedWeeklyBudget - totalWeeklySpent;
 
   const selectedDayRecords = selectedDateForList
     ? records.filter((r) => r.dateStr === selectedDateForList)
     : [];
 
-  // 月のカテゴリ別一覧用（月曜日の属する月のレコードのみ対象）
   const selectedCategoryRecords = selectedCategoryForList
     ? records.filter(
         (r) =>
@@ -401,7 +472,7 @@ export default function WeekPage() {
                     className="text-[11px] font-medium"
                     style={{ color: "#79665A" }}
                   >
-                    今月の残り
+                    今週の残り
                   </div>
                   <div className="flex justify-center items-center gap-2 my-0.5">
                     <ChevronLeft
@@ -441,7 +512,7 @@ export default function WeekPage() {
                 <div
                   className="h-full rounded-full transition-all duration-300"
                   style={{
-                    width: `${Math.min(100, Math.max(0, (totalWeeklySpent / weeklyBudget) * 100))}%`,
+                    width: `${computedWeeklyBudget > 0 ? Math.min(100, Math.max(0, (totalWeeklySpent / computedWeeklyBudget) * 100)) : 0}%`,
                     backgroundColor: "#F28FA4",
                   }}
                 ></div>
@@ -455,7 +526,7 @@ export default function WeekPage() {
                 <span className="font-bold">
                   ¥ {totalWeeklySpent.toLocaleString()}
                 </span>{" "}
-                / 予算 ¥{weeklyBudget.toLocaleString()}
+                / 予算 ¥{computedWeeklyBudget.toLocaleString()}
               </div>
             </div>
 
@@ -472,48 +543,57 @@ export default function WeekPage() {
               </div>
 
               <div className="space-y-1.5 w-full">
-                {sampleWeeklyData.map((item, index) => (
-                  <div
-                    key={index}
-                    onClick={() => setSelectedDateForList(item.fullDateStr)}
-                    className="p-2.5 rounded-xl bg-white shadow-xs flex items-center justify-between w-full cursor-pointer hover:bg-gray-50 transition"
-                    style={{ border: "1px solid #EAE3DD" }}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="text-center w-12 pr-2"
-                        style={{ borderRight: "1px solid #EAE3DD" }}
-                      >
+                {sampleWeeklyData.map((item, index) => {
+                  const isHighlighted = highlightedDateStr === item.fullDateStr;
+                  return (
+                    <div
+                      key={index}
+                      onClick={() => setSelectedDateForList(item.fullDateStr)}
+                      className="p-2.5 rounded-xl shadow-xs flex items-center justify-between w-full cursor-pointer hover:opacity-90"
+                      style={{
+                        backgroundColor: isHighlighted ? "#FFE4EB" : "#FFFFFF",
+                        border: isHighlighted
+                          ? "1.5px solid #F28FA4"
+                          : "1px solid #EAE3DD",
+                        transition:
+                          "background-color 0.9s ease, border-color 0.9s ease",
+                      }}
+                    >
+                      <div className="flex items-center gap-3">
                         <div
-                          className="text-[11px] font-bold"
-                          style={{ color: item.dayColor }}
+                          className="text-center w-12 pr-2"
+                          style={{ borderRight: "1px solid #EAE3DD" }}
                         >
-                          {item.date}
+                          <div
+                            className="text-[11px] font-bold"
+                            style={{ color: item.dayColor }}
+                          >
+                            {item.date}
+                          </div>
+                          <div
+                            className="text-[10px] font-bold"
+                            style={{ color: item.dayColor }}
+                          >
+                            （{item.day}）
+                          </div>
                         </div>
                         <div
-                          className="text-[10px] font-bold"
-                          style={{ color: item.dayColor }}
+                          className="font-extrabold text-xs"
+                          style={{ color: "#79665A" }}
                         >
-                          （{item.day}）
+                          ¥ {item.amount.toLocaleString()}
                         </div>
                       </div>
-                      <div
-                        className="font-extrabold text-xs"
-                        style={{ color: "#79665A" }}
-                      >
-                        ¥ {item.amount.toLocaleString()}
-                      </div>
+                      <ChevronRight
+                        className="w-3.5 h-3.5 ml-1"
+                        style={{ color: "#A99A8E" }}
+                      />
                     </div>
-                    <ChevronRight
-                      className="w-3.5 h-3.5 ml-1"
-                      style={{ color: "#A99A8E" }}
-                    />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
-            {/* 今月のカテゴリ合計（カスタムカテゴリのみ表示、月曜日の属する月で集計） */}
             <div
               className="p-3.5 rounded-2xl bg-white shadow-sm space-y-2.5 w-full"
               style={{ border: "1px solid #EAE3DD" }}
@@ -620,14 +700,32 @@ export default function WeekPage() {
           </main>
         </div>
 
+        {!isAnyModalOpen && (
+          <button
+            type="button"
+            onClick={handleJumpToToday}
+            aria-label="今日に戻る"
+            className="fixed bottom-20 right-4 z-40 w-12 h-12 p-0 bg-transparent border-0 rounded-full shadow-md flex items-center justify-center cursor-pointer transition hover:opacity-90 active:scale-95"
+          >
+            <img
+              src="/button.png"
+              alt="今日に戻る"
+              className="w-full h-full object-contain rounded-full"
+            />
+          </button>
+        )}
+
         <BottomNav />
       </div>
 
       {isAddModalOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overscroll-none"
+          style={{ touchAction: "none" }}
+        >
           <div
-            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-4 relative"
-            style={{ border: "1px solid #EAE3DD" }}
+            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-4 relative max-h-[90vh] overflow-y-auto"
+            style={{ border: "1px solid #EAE3DD", touchAction: "pan-y" }}
           >
             <button
               onClick={() => setIsAddModalOpen(false)}
@@ -733,10 +831,13 @@ export default function WeekPage() {
       )}
 
       {selectedDateForList !== null && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overscroll-none"
+          style={{ touchAction: "none" }}
+        >
           <div
-            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-4 relative"
-            style={{ border: "1px solid #EAE3DD" }}
+            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-4 relative max-h-[90vh] overflow-y-auto"
+            style={{ border: "1px solid #EAE3DD", touchAction: "pan-y" }}
           >
             <button
               onClick={() => setSelectedDateForList(null)}
@@ -805,10 +906,13 @@ export default function WeekPage() {
       )}
 
       {selectedCategoryForList !== null && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overscroll-none"
+          style={{ touchAction: "none" }}
+        >
           <div
-            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-4 relative"
-            style={{ border: "1px solid #EAE3DD" }}
+            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-4 relative max-h-[90vh] overflow-y-auto"
+            style={{ border: "1px solid #EAE3DD", touchAction: "pan-y" }}
           >
             <button
               onClick={() => setSelectedCategoryForList(null)}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db, auth } from "@/lib/firebase";
 import {
   onAuthStateChanged,
@@ -16,6 +16,7 @@ import {
   query,
   orderBy,
   addDoc,
+  updateDoc,
   deleteDoc,
 } from "firebase/firestore";
 import { getActualWithdrawalDate, formatDateToString } from "@/lib/dateUtils";
@@ -27,6 +28,7 @@ import {
   User,
   X,
   Trash2,
+  Edit2,
   LogOut,
 } from "lucide-react";
 import BottomNav from "@/src/components/BottomNav";
@@ -43,6 +45,8 @@ interface ExpenseItem {
   startYM?: string;
   endYM?: string;
   createdAt?: string;
+  targetDateStr?: string;
+  confirmedAt?: string;
 }
 
 interface IncomeEntry {
@@ -127,6 +131,66 @@ function getBusinessEndOfMonth(year: number, month: number): number {
     date.setDate(date.getDate() - 1);
   }
   return date.getDate();
+}
+
+function parseBaseDate(raw?: string): Date {
+  if (raw) {
+    const ymdMatch = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (ymdMatch) {
+      return new Date(
+        Number(ymdMatch[1]),
+        Number(ymdMatch[2]) - 1,
+        Number(ymdMatch[3]),
+      );
+    }
+    const parsed = new Date(raw);
+    if (!isNaN(parsed.getTime())) {
+      return new Date(
+        parsed.getFullYear(),
+        parsed.getMonth(),
+        parsed.getDate(),
+      );
+    }
+  }
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function getVariableTargetDateStr(item: ExpenseItem): string | null {
+  if (item.targetDateStr) {
+    return item.targetDateStr;
+  }
+
+  const baseMidnight = parseBaseDate(item.confirmedAt || item.createdAt);
+  let candYear = baseMidnight.getFullYear();
+  let candMonth = baseMidnight.getMonth() + 1;
+
+  for (let i = 0; i < 13; i++) {
+    const targetDay =
+      item.dueDay === "end"
+        ? getBusinessEndOfMonth(candYear, candMonth)
+        : Number(item.dueDay) || 27;
+
+    const actualDate = getActualWithdrawalDate(candYear, candMonth, targetDay);
+    const actualMidnight = new Date(
+      actualDate.getFullYear(),
+      actualDate.getMonth(),
+      actualDate.getDate(),
+    );
+
+    if (actualMidnight > baseMidnight) {
+      return formatDateToString(actualMidnight);
+    }
+
+    if (candMonth === 12) {
+      candYear += 1;
+      candMonth = 1;
+    } else {
+      candMonth += 1;
+    }
+  }
+
+  return null;
 }
 
 function LoginScreen() {
@@ -226,6 +290,10 @@ export default function Home() {
 
   const [currentYear, setCurrentYear] = useState(2026);
   const [currentMonth, setCurrentMonth] = useState(11);
+  const [highlightedDateKey, setHighlightedDateKey] = useState<string | null>(
+    null,
+  );
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
@@ -240,6 +308,15 @@ export default function Home() {
     "common",
   );
   const [confirmDay, setConfirmDay] = useState("20");
+
+  const [editingOneTimeItem, setEditingOneTimeItem] =
+    useState<ExpenseItem | null>(null);
+  const [editOneTimeTitle, setEditOneTimeTitle] = useState("");
+  const [editOneTimeAmount, setEditOneTimeAmount] = useState("");
+  const [editOneTimeDueDay, setEditOneTimeDueDay] = useState("1");
+  const [editOneTimeOwnership, setEditOneTimeOwnership] = useState<
+    "common" | "husband" | "wife"
+  >("common");
 
   const [husbandName, setHusbandName] = useState("夫");
   const [wifeName, setWifeName] = useState("妻");
@@ -265,12 +342,65 @@ export default function Home() {
     "husband" | "wife" | null
   >(null);
 
+  const isAnyModalOpen =
+    isModalOpen ||
+    editingOneTimeItem !== null ||
+    incomeModalTarget !== null ||
+    selectedDateStr !== null ||
+    expenseDetailTarget !== null;
+
+  useEffect(() => {
+    if (!isAnyModalOpen) return;
+
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevBodyTouchAction = document.body.style.touchAction;
+
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+
+    return () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.body.style.touchAction = prevBodyTouchAction;
+    };
+  }, [isAnyModalOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleJumpToToday = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    const d = now.getDate();
+    const todayKey = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+
+    setCurrentYear(y);
+    setCurrentMonth(m);
+
+    if (highlightTimerRef.current) {
+      clearTimeout(highlightTimerRef.current);
+    }
+    setHighlightedDateKey(null);
+    requestAnimationFrame(() => {
+      setHighlightedDateKey(todayKey);
+      highlightTimerRef.current = setTimeout(() => {
+        setHighlightedDateKey(null);
+      }, 1000);
+    });
+  };
+
   const activeSelectedYM = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
 
-  // 【厳格な修正】収入データのcreatedAtが未設定（古いデータなど）の場合でも、勝手に他月に漏れ出さないよう、存在する場合のみ年月一致を厳密にチェックする
   const currentMonthIncomes = incomes.filter((item) => {
     if (!item.createdAt) {
-      // 登録月データがない古いデータはデフォルトで10月分とする（または非表示にする）
       return activeSelectedYM === "2026-10";
     }
     return item.createdAt === activeSelectedYM;
@@ -437,8 +567,9 @@ export default function Home() {
     if (!title) return;
 
     const parsedDueDay = dueDay === "end" ? "end" : Number(dueDay);
+    const confirmedIso = new Date().toISOString();
 
-    const newItemWithoutId = {
+    const newItemWithoutId: Omit<ExpenseItem, "id"> = {
       title,
       expenseType,
       amount: Number(amount) || 0,
@@ -447,6 +578,17 @@ export default function Home() {
       confirmDay: expenseType === "variable" ? Number(confirmDay) : null,
       createdAt: activeSelectedYM,
     };
+
+    if (expenseType === "variable") {
+      newItemWithoutId.confirmedAt = confirmedIso;
+      const targetStr = getVariableTargetDateStr({
+        ...newItemWithoutId,
+        id: "",
+      });
+      if (targetStr) {
+        newItemWithoutId.targetDateStr = targetStr;
+      }
+    }
 
     try {
       if (db) {
@@ -469,6 +611,72 @@ export default function Home() {
     setTitle("");
     setAmount("");
     setIsModalOpen(false);
+  };
+
+  const handleOpenEditOneTimeModal = (item: ExpenseItem) => {
+    setEditingOneTimeItem(item);
+    setEditOneTimeTitle(item.title);
+    setEditOneTimeAmount(String(item.amount));
+    setEditOneTimeDueDay(String(item.dueDay === "end" ? 1 : item.dueDay));
+    setEditOneTimeOwnership(item.ownership);
+  };
+
+  const handleUpdateOneTimeExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingOneTimeItem || !editOneTimeTitle) return;
+
+    const parsedDueDay = Number(editOneTimeDueDay) || 1;
+    const parsedAmount = Number(editOneTimeAmount) || 0;
+
+    const updatedFields = {
+      title: editOneTimeTitle,
+      amount: parsedAmount,
+      dueDay: parsedDueDay,
+      ownership: editOneTimeOwnership,
+    };
+
+    try {
+      if (db) {
+        await updateDoc(
+          doc(db, "expenses", editingOneTimeItem.id),
+          updatedFields,
+        );
+      }
+
+      const updatedExpenses = expenses.map((item) =>
+        item.id === editingOneTimeItem.id
+          ? { ...item, ...updatedFields }
+          : item,
+      );
+      setExpenses(updatedExpenses);
+      localStorage.setItem("app_expenses", JSON.stringify(updatedExpenses));
+
+      if (selectedDateStr) {
+        const formattedDay = String(parsedDueDay).padStart(2, "0");
+        const formattedMonth = String(currentMonth).padStart(2, "0");
+        const newDateKey = `${currentYear}-${formattedMonth}-${formattedDay}`;
+
+        if (newDateKey === selectedDateStr) {
+          setSelectedDayExpenses(
+            selectedDayExpenses.map((item) =>
+              item.id === editingOneTimeItem.id
+                ? { ...item, ...updatedFields }
+                : item,
+            ),
+          );
+        } else {
+          setSelectedDayExpenses(
+            selectedDayExpenses.filter(
+              (item) => item.id !== editingOneTimeItem.id,
+            ),
+          );
+        }
+      }
+
+      setEditingOneTimeItem(null);
+    } catch (e) {
+      console.error("更新エラー:", e);
+    }
   };
 
   const handleDeleteExpenseItem = async (id: string) => {
@@ -497,6 +705,9 @@ export default function Home() {
 
     if (item.expenseType === "variable") {
       if (!item.amount || item.amount <= 0) return false;
+      const targetStr = getVariableTargetDateStr(item);
+      if (!targetStr) return false;
+      return targetStr.startsWith(activeSelectedYM);
     }
 
     if (item.startYM && activeSelectedYM < item.startYM) {
@@ -663,7 +874,11 @@ export default function Home() {
         ? getBusinessEndOfMonth(currentYear, currentMonth)
         : Number(item.dueDay);
 
-    if (item.expenseType === "fixed" || item.expenseType === "variable") {
+    if (item.expenseType === "variable") {
+      const targetStr = getVariableTargetDateStr(item);
+      if (!targetStr) return;
+      dateStr = targetStr;
+    } else if (item.expenseType === "fixed") {
       const actualDate = getActualWithdrawalDate(
         currentYear,
         currentMonth,
@@ -898,6 +1113,7 @@ export default function Home() {
                   const dayExpenses = expensesByDate[dateKey] || [];
                   const dayIncomes = incomesByDate[dateKey] || [];
                   const dayOfWeek = (firstDay + index) % 7;
+                  const isHighlighted = highlightedDateKey === dateKey;
 
                   let dateColor = "#79665A";
                   if (dayOfWeek === 0 || isHoliday) {
@@ -910,8 +1126,15 @@ export default function Home() {
                     <div
                       key={day}
                       onClick={() => handleOpenDayDetail(dateKey)}
-                      className="h-[72px] p-1 rounded-xl flex flex-col justify-between bg-white w-full transition shadow-2xs cursor-pointer hover:bg-gray-50 overflow-hidden"
-                      style={{ border: "1px solid #EAE3DD" }}
+                      className="h-[72px] p-1 rounded-xl flex flex-col justify-between w-full shadow-2xs cursor-pointer hover:opacity-90 overflow-hidden"
+                      style={{
+                        backgroundColor: isHighlighted ? "#FFE4EB" : "#FFFFFF",
+                        border: isHighlighted
+                          ? "1.5px solid #F28FA4"
+                          : "1px solid #EAE3DD",
+                        transition:
+                          "background-color 0.9s ease, border-color 0.9s ease",
+                      }}
                     >
                       <div className="flex justify-between items-center w-full">
                         <span
@@ -1043,14 +1266,32 @@ export default function Home() {
           </main>
         </div>
 
+        {!isAnyModalOpen && (
+          <button
+            type="button"
+            onClick={handleJumpToToday}
+            aria-label="今日に戻る"
+            className="fixed bottom-20 right-4 z-40 w-12 h-12 p-0 bg-transparent border-0 rounded-full shadow-md flex items-center justify-center cursor-pointer transition hover:opacity-90 active:scale-95"
+          >
+            <img
+              src="/button.png"
+              alt="今日に戻る"
+              className="w-full h-full object-contain rounded-full"
+            />
+          </button>
+        )}
+
         <BottomNav />
       </div>
 
       {expenseDetailTarget && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overscroll-none"
+          style={{ touchAction: "none" }}
+        >
           <div
-            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-3 relative"
-            style={{ border: "1px solid #EAE3DD" }}
+            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-3 relative max-h-[90vh] overflow-y-auto"
+            style={{ border: "1px solid #EAE3DD", touchAction: "pan-y" }}
           >
             <button
               onClick={() => setExpenseDetailTarget(null)}
@@ -1125,10 +1366,13 @@ export default function Home() {
       )}
 
       {incomeModalTarget && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overscroll-none"
+          style={{ touchAction: "none" }}
+        >
           <div
-            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-4 relative"
-            style={{ border: "1px solid #EAE3DD" }}
+            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-4 relative max-h-[90vh] overflow-y-auto"
+            style={{ border: "1px solid #EAE3DD", touchAction: "pan-y" }}
           >
             <button
               onClick={() => setIncomeModalTarget(null)}
@@ -1247,10 +1491,13 @@ export default function Home() {
       )}
 
       {selectedDateStr && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overscroll-none"
+          style={{ touchAction: "none" }}
+        >
           <div
-            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-3 relative"
-            style={{ border: "1px solid #EAE3DD" }}
+            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-3 relative max-h-[90vh] overflow-y-auto"
+            style={{ border: "1px solid #EAE3DD", touchAction: "pan-y" }}
           >
             <button
               onClick={() => setSelectedDateStr(null)}
@@ -1339,22 +1586,32 @@ export default function Home() {
                               : "共通"}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <div
-                          className="font-extrabold text-sm"
+                          className="font-extrabold text-sm mr-0.5"
                           style={{ color: "#79665A" }}
                         >
                           -¥ {item.amount.toLocaleString()}
                         </div>
                         {item.expenseType === "one-time" && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteExpenseItem(item.id)}
-                            className="p-1 text-red-400 hover:text-red-600 cursor-pointer"
-                            title="削除"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditOneTimeModal(item)}
+                              className="p-1 text-gray-400 hover:text-[#79665A] cursor-pointer"
+                              title="修正"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteExpenseItem(item.id)}
+                              className="p-1 text-red-400 hover:text-red-600 cursor-pointer"
+                              title="削除"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -1374,11 +1631,136 @@ export default function Home() {
         </div>
       )}
 
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      {editingOneTimeItem && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overscroll-none"
+          style={{ touchAction: "none" }}
+        >
           <div
-            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-3"
-            style={{ border: "1px solid #EAE3DD" }}
+            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-3 relative max-h-[90vh] overflow-y-auto"
+            style={{ border: "1px solid #EAE3DD", touchAction: "pan-y" }}
+          >
+            <button
+              type="button"
+              onClick={() => setEditingOneTimeItem(null)}
+              className="absolute top-4 right-4 p-1 text-gray-400 hover:text-gray-600 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <h3
+              className="font-bold text-sm text-center"
+              style={{ color: "#79665A" }}
+            >
+              単発支出の修正
+            </h3>
+            <form onSubmit={handleUpdateOneTimeExpense} className="space-y-2.5">
+              <div>
+                <label
+                  className="block text-[11px] font-semibold mb-1"
+                  style={{ color: "#A99A8E" }}
+                >
+                  項目名
+                </label>
+                <input
+                  type="text"
+                  value={editOneTimeTitle}
+                  onChange={(e) => setEditOneTimeTitle(e.target.value)}
+                  className="w-full rounded-xl p-2 text-base outline-none bg-white"
+                  style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label
+                    className="block text-[11px] font-semibold mb-1"
+                    style={{ color: "#A99A8E" }}
+                  >
+                    金額 (円)
+                  </label>
+                  <input
+                    type="number"
+                    value={editOneTimeAmount}
+                    onChange={(e) => setEditOneTimeAmount(e.target.value)}
+                    className="w-full rounded-xl p-2 text-base outline-none bg-white"
+                    style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                    required
+                  />
+                </div>
+                <div>
+                  <label
+                    className="block text-[11px] font-semibold mb-1"
+                    style={{ color: "#A99A8E" }}
+                  >
+                    支払日
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={editOneTimeDueDay}
+                    onChange={(e) => setEditOneTimeDueDay(e.target.value)}
+                    className="w-full rounded-xl p-2 text-base outline-none bg-white"
+                    style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  className="block text-[11px] font-semibold mb-1"
+                  style={{ color: "#A99A8E" }}
+                >
+                  負担区分
+                </label>
+                <select
+                  value={editOneTimeOwnership}
+                  onChange={(e) =>
+                    setEditOneTimeOwnership(
+                      e.target.value as "common" | "husband" | "wife",
+                    )
+                  }
+                  className="w-full rounded-xl p-2 text-base outline-none bg-white"
+                  style={{ border: "1px solid #EAE3DD", color: "#79665A" }}
+                >
+                  <option value="common">共通</option>
+                  <option value="husband">{husbandName}</option>
+                  <option value="wife">{wifeName}</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setEditingOneTimeItem(null)}
+                  className="flex-1 p-2 rounded-xl font-semibold text-xs cursor-pointer"
+                  style={{ backgroundColor: "#EAE3DD", color: "#79665A" }}
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 text-white p-2 rounded-xl font-semibold text-xs shadow-md cursor-pointer"
+                  style={{ backgroundColor: "#F28FA4" }}
+                >
+                  更新する
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isModalOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overscroll-none"
+          style={{ touchAction: "none" }}
+        >
+          <div
+            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-xl space-y-3 max-h-[90vh] overflow-y-auto"
+            style={{ border: "1px solid #EAE3DD", touchAction: "pan-y" }}
           >
             <h3
               className="font-bold text-sm text-center"

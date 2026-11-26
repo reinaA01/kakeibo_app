@@ -41,6 +41,15 @@ interface CategoryItem {
   isSystem?: boolean;
 }
 
+interface MonthOption {
+  value: string;
+  label: string;
+}
+
+const DEFAULT_MONTH_OPTIONS: MonthOption[] = [
+  { value: "2026-10", label: "2026年 10月" },
+];
+
 export default function AnalysisPage() {
   const [husbandName, setHusbandName] = useState("夫");
   const [wifeName, setWifeName] = useState("妻");
@@ -58,8 +67,24 @@ export default function AnalysisPage() {
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
 
   const [selectedYearMonth, setSelectedYearMonth] = useState("2026-10");
+  const [monthOptions, setMonthOptions] = useState<MonthOption[]>(
+    DEFAULT_MONTH_OPTIONS,
+  );
 
   useEffect(() => {
+    const now = new Date();
+    const currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    setSelectedYearMonth(currentYM);
+
+    const options: MonthOption[] = [];
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      options.push({ value: `${y}-${m}`, label: `${y}年 ${Number(m)}月` });
+    }
+    setMonthOptions(options);
+
     const localConfig = localStorage.getItem("app_config");
     if (localConfig) {
       try {
@@ -127,20 +152,6 @@ export default function AnalysisPage() {
     fetchData();
   }, []);
 
-  const generateMonthOptions = () => {
-    const options = [];
-    const now = new Date(2026, 9, 1);
-    for (let i = 0; i < 12; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      options.push({ value: `${y}-${m}`, label: `${y}年 ${Number(m)}月` });
-    }
-    return options;
-  };
-
-  const monthOptions = generateMonthOptions();
-
   const handlePrevMonth = () => {
     const [y, m] = selectedYearMonth.split("-").map(Number);
     const d = new Date(y, m - 2, 1);
@@ -157,9 +168,15 @@ export default function AnalysisPage() {
     );
   };
 
+  const handleJumpToToday = () => {
+    const now = new Date();
+    setSelectedYearMonth(
+      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
+    );
+  };
+
   const [displayYear, displayMonth] = selectedYearMonth.split("-");
 
-  // 月画面と完全に同じ月ごとの引き落とし・支出フィルターロジック
   const getBreakdownForMonth = (ym: string) => {
     const monthRecords = records.filter(
       (r) => r.dateStr && r.dateStr.startsWith(ym),
@@ -513,6 +530,19 @@ export default function AnalysisPage() {
             </div>
           </main>
         </div>
+
+        <button
+          type="button"
+          onClick={handleJumpToToday}
+          aria-label="今日に戻る"
+          className="fixed bottom-20 right-4 z-40 w-12 h-12 p-0 bg-transparent border-0 rounded-full shadow-md flex items-center justify-center cursor-pointer transition hover:opacity-90 active:scale-95"
+        >
+          <img
+            src="/button.png"
+            alt="今日に戻る"
+            className="w-full h-full object-contain rounded-full"
+          />
+        </button>
 
         <BottomNav />
       </div>
