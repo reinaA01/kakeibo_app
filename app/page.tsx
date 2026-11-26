@@ -636,15 +636,19 @@ export default function Home() {
     };
 
     try {
-      if (db) {
-        await updateDoc(
-          doc(db, "expenses", editingOneTimeItem.id),
-          updatedFields,
+      const targetId = editingOneTimeItem.id;
+
+      if (db && targetId && targetId.trim() !== "") {
+        await updateDoc(doc(db, "expenses", targetId), updatedFields);
+      } else {
+        console.warn(
+          "FirestoreのドキュメントIDが空のため、画面とlocalStorageのみ更新します。",
+          editingOneTimeItem,
         );
       }
 
       const updatedExpenses = expenses.map((item) =>
-        item.id === editingOneTimeItem.id
+        item === editingOneTimeItem || (targetId && item.id === targetId)
           ? { ...item, ...updatedFields }
           : item,
       );
@@ -659,7 +663,7 @@ export default function Home() {
         if (newDateKey === selectedDateStr) {
           setSelectedDayExpenses(
             selectedDayExpenses.map((item) =>
-              item.id === editingOneTimeItem.id
+              item === editingOneTimeItem || (targetId && item.id === targetId)
                 ? { ...item, ...updatedFields }
                 : item,
             ),
@@ -667,7 +671,9 @@ export default function Home() {
         } else {
           setSelectedDayExpenses(
             selectedDayExpenses.filter(
-              (item) => item.id !== editingOneTimeItem.id,
+              (item) =>
+                item !== editingOneTimeItem &&
+                !(targetId && item.id === targetId),
             ),
           );
         }
@@ -679,17 +685,30 @@ export default function Home() {
     }
   };
 
-  const handleDeleteExpenseItem = async (id: string) => {
+  const handleDeleteExpenseItem = async (target: ExpenseItem | string) => {
     if (!confirm("本当にこの支払いを削除しますか？")) return;
     try {
-      if (db) {
-        await deleteDoc(doc(db, "expenses", id));
+      const targetItem = typeof target === "string" ? null : target;
+      const targetId = typeof target === "string" ? target : target.id;
+
+      if (db && targetId && targetId.trim() !== "") {
+        await deleteDoc(doc(db, "expenses", targetId));
+      } else {
+        console.warn(
+          "FirestoreのドキュメントIDが空のため、画面とlocalStorageのみ削除します。",
+          target,
+        );
       }
-      const updated = expenses.filter((item) => item.id !== id);
+
+      const isMatched = (item: ExpenseItem) =>
+        (targetItem !== null && item === targetItem) ||
+        Boolean(targetId && item.id === targetId);
+
+      const updated = expenses.filter((item) => !isMatched(item));
       setExpenses(updated);
       localStorage.setItem("app_expenses", JSON.stringify(updated));
       setSelectedDayExpenses(
-        selectedDayExpenses.filter((item) => item.id !== id),
+        selectedDayExpenses.filter((item) => !isMatched(item)),
       );
     } catch (e) {
       console.error("削除エラー:", e);
@@ -1605,7 +1624,7 @@ export default function Home() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDeleteExpenseItem(item.id)}
+                              onClick={() => handleDeleteExpenseItem(item)}
                               className="p-1 text-red-400 hover:text-red-600 cursor-pointer"
                               title="削除"
                             >
